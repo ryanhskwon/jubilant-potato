@@ -101,9 +101,10 @@ cp .env.example .env   <span class="c"># 외부에 열면 VLLM_API_KEY 설정</s
     </div></li>
     <li><div>
       <h3>테스트</h3>
-      <p><code>test</code>는 텍스트, 도구 호출, 이미지, 속도를 점검합니다. <code>loadtest</code>는 동시 사용자 수별 응답 속도와 초당 토큰을 잽니다.</p>
+      <p><code>test</code>는 텍스트, 도구 호출, 이미지, 속도를 점검합니다. <code>loadtest</code>는 동시 사용자 수별 응답 속도와 초당 토큰을 잽니다. <code>eval</code>은 코딩 과제 통과율을 봅니다. 자세한 내용은 아래 <a href="#eval">모델 선택 평가</a>를 참고하세요.</p>
       <div class="term"><button class="copy" type="button">복사</button><pre>./serve.sh test
-./serve.sh loadtest</pre></div>
+./serve.sh loadtest
+./serve.sh eval</pre></div>
     </div></li>
     <li><div>
       <h3>연결</h3>
@@ -123,7 +124,8 @@ cp .env.example .env   <span class="c"># 외부에 열면 VLLM_API_KEY 설정</s
       <tr><td class="m">status · logs · down</td><td>상태 · 로그 · 종료</td></tr>
       <tr><td class="m">test</td><td>기능 점검</td></tr>
       <tr><td class="m">loadtest [옵션]</td><td>동시 사용자·초당 토큰 측정</td></tr>
-      <tr><td class="m">test-all</td><td>모든 모델 test + loadtest → <code>results/</code></td></tr>
+      <tr><td class="m">eval [옵션]</td><td>코딩 과제 평가 (통과율) → <code>results/eval/</code></td></tr>
+      <tr><td class="m">test-all</td><td>모든 모델 test + loadtest + eval → <code>results/</code></td></tr>
       <tr><td class="m">monitor up|down</td><td>Grafana(:3000) 상시 지표 수집</td></tr>
     </tbody>
   </table></div>
@@ -163,6 +165,60 @@ cp .env.example .env   <span class="c"># 외부에 열면 VLLM_API_KEY 설정</s
     <li>첫 토큰 시간</li>
     <li>KV 캐시 사용률, 캐시 적중률</li>
   </ul>
+</section>
+
+<section id="eval">
+  <h2>모델 선택 평가</h2>
+  <p>어떤 모델이 가장 적합한지는 <b>품질</b>과 <b>속도</b>를 따로 재서 정합니다. 품질은 <code>eval</code>, 속도는 <code>loadtest</code>로 잽니다.</p>
+
+  <h3>1. 품질: 코딩 과제 통과율</h3>
+  <p>모델이 실제 코딩 에이전트처럼 도구로 과제를 풉니다. 도구는 파일 목록, 읽기, 쓰기, 테스트 실행 네 가지이고, 테스트 통과 여부로 채점합니다.</p>
+  <div class="term"><button class="copy" type="button">복사</button><pre>./serve.sh up qwen3.8-27b-nvfp4
+./serve.sh eval
+<span class="c"># 과제 일부만</span>
+./serve.sh eval --only fix-median,cart-tax</pre></div>
+  <p>출력 예:</p>
+  <div class="term"><pre>과제                        결과   시간(s)   모델 호출   도구 호출   도구 실패
+cart-tax                   PASS      95         6          9          0
+fix-median                 PASS      40         4          5          0
+...
+통과 4/4 (100.0%), 과제당 평균 61.2초, 도구 호출 실패 0회
+
+모델 비교 (results/eval/summary.csv)
+| 모델 | 통과율 | 과제당 시간 | 도구 실패 | 토큰 | 날짜 |</pre></div>
+  <p class="muted">실행할 때마다 <code>results/eval/summary.csv</code>에 모델별 한 줄이 쌓여서, 모델을 바꿔 가며 돌리면 마지막에 비교표가 나옵니다. 위 출력은 형식을 보여 주는 예시입니다.</p>
+
+  <h3>2. 과제 만들기</h3>
+  <p>샘플 4개(버그 수정, 함수 구현, 로그 파싱, 여러 파일 수정)가 들어 있습니다. 실제 업무에서 뽑은 과제 <b>20~50개</b>로 바꿔야 의미 있는 비교가 됩니다.</p>
+  <div class="term"><pre>evals/tasks/&lt;과제 이름&gt;/
+  task.md          지시문 (한국어 가능)
+  files/           시작 코드 → 모델이 작업하는 폴더로 복사
+  tests/test_*.py  채점용 unittest (실행 때마다 원본으로 덮어써서 모델이 못 고침)</pre></div>
+  <ul>
+    <li>테스트는 시작 코드에서 <b>실패</b>하고, 올바르게 고치면 <b>통과</b>해야 합니다.</li>
+    <li>과제 종류를 고르게 섞으세요: 버그 수정, 기능 추가, 리팩터링, 테스트 작성.</li>
+    <li>모델이 작성한 코드는 서버의 임시 폴더에서 실행됩니다 (테스트당 60초 제한).</li>
+  </ul>
+
+  <h3>3. 속도와 수용량</h3>
+  <p>같은 모델로 <code>./serve.sh loadtest</code>를 돌려, 목표를 지키는 최대 동시 사용자와 초당 토큰을 잽니다. <code>./serve.sh test-all</code>은 폴더가 있는 모든 모델에 대해 test, loadtest, eval을 차례로 실행하고 <code>results/</code>에 저장합니다.</p>
+
+  <h3>4. 결정</h3>
+  <ol>
+    <li>품질 기준을 정합니다 (예: 통과율 70% 이상, 도구 호출 실패 거의 없음).</li>
+    <li>기준을 넘는 모델 중 <b>최대 동시 사용자</b>가 가장 많은 모델을 고릅니다.</li>
+    <li>필요한 기능을 확인합니다.
+      <ul>
+        <li>이미지 입력: Qwen3.8, Qwen3.6, Gemma</li>
+        <li>사고(thinking): Coder 두 모델 제외</li>
+        <li>컨텍스트 길이</li>
+      </ul>
+    </li>
+  </ol>
+  <div class="table-wrap"><table>
+    <thead><tr><th>모델</th><th>통과율</th><th>도구 실패</th><th>과제당 시간</th><th>최대 동시 사용자</th><th>사용자당 tok/s</th></tr></thead>
+    <tbody><tr><td class="muted" colspan="6">eval의 비교표와 loadtest 결과를 이 형식으로 모으면 됩니다</td></tr></tbody>
+  </table></div>
 </section>
 
 <section id="troubleshooting">
@@ -221,6 +277,8 @@ nvidia-smi                                              <span class="c"># GPU를
       <tr><td class="m">configs/*.yaml</td><td>모델별 vLLM 옵션</td></tr>
       <tr><td class="m">scripts/test.py</td><td>기능 점검</td></tr>
       <tr><td class="m">scripts/loadtest.py</td><td>부하 테스트</td></tr>
+      <tr><td class="m">scripts/eval.py</td><td>코딩 과제 평가</td></tr>
+      <tr><td class="m">evals/tasks/</td><td>평가 과제 (샘플 4개)</td></tr>
       <tr><td class="m">scripts/check_image.py</td><td>이미지 호환성 검사 (check가 사용)</td></tr>
       <tr><td class="m">monitoring/</td><td>Prometheus 설정, Grafana 대시보드</td></tr>
       <tr><td class="m">.env.example</td><td>서버별 설정 견본</td></tr>

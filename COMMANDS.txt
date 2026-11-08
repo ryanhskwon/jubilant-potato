@@ -1,0 +1,67 @@
+jubilant-potato 주요 명령어 (서버에서 jubilant-potato 폴더 안에서 실행)
+======================================================================
+
+[1] 처음 설치
+git clone https://github.com/ryanhskwon/jubilant-potato.git
+cd jubilant-potato
+cp .env.example .env
+vi .env                                  # VLLM_API_KEY, GRAFANA_ADMIN_PASSWORD 설정
+./serve.sh check                         # 드라이버, 이미지, transformers, 모델 폴더 점검
+
+[2] 업데이트
+git pull
+
+[3] 모델 실행 / 전환 / 종료
+./serve.sh list
+./serve.sh up qwen3.8-27b-nvfp4
+./serve.sh up qwen3.8-27b-fp8
+./serve.sh up qwen3.6-35b-a3b-fp8
+./serve.sh up gemma-4-31b-it-fp8
+./serve.sh up qwen3-coder-30b-a3b-fp8
+./serve.sh up qwen3-coder-next-fp8
+./serve.sh status
+./serve.sh down
+
+[4] 테스트
+./serve.sh test                          # 텍스트, 도구 호출, 이미지, 속도
+
+[5] 부하 테스트 (동시 사용자, 초당 토큰)
+./serve.sh loadtest
+./serve.sh loadtest --users 1,4,8,16 --input 8000 --output 512 --ttft 3 --tps 20 --csv result.csv
+
+[6] 모델 평가 (코딩 과제 통과율)
+./serve.sh eval
+./serve.sh eval --only fix-median,cart-tax
+cat results/eval/summary.csv
+
+[7] 전체 모델 한 번에 (test + loadtest + eval, 오래 걸림)
+./serve.sh test-all
+ls results/
+
+[8] 상시 지표 수집 (Grafana http://<서버>:3000)
+./serve.sh monitor up
+./serve.sh monitor down
+
+[9] 로그 / 장애 확인
+./serve.sh logs
+docker compose --profile all logs | grep -iE "error|memory|KV cache"
+nvidia-smi
+docker ps
+
+[10] OOM(메모리 부족) 대처 — configs/<모델>.yaml 수정 후 다시 up
+vi configs/qwen3.8-27b-nvfp4.yaml
+#   1) max-model-len 절반으로        262144 -> 131072
+#   2) gpu-memory-utilization        0.92 -> 0.95
+#   3) speculative-config 줄 삭제
+#   4) max-num-seqs 절반으로          8 -> 4
+#   5) enforce-eager: true 추가
+./serve.sh up qwen3.8-27b-nvfp4
+
+[11] API 호출 예 (클라이언트)
+curl http://<서버>:8000/v1/models -H "Authorization: Bearer <VLLM_API_KEY>"
+curl http://<서버>:8000/v1/chat/completions -H "Content-Type: application/json" -H "Authorization: Bearer <VLLM_API_KEY>" -d '{"model": "qwen3.8-27b-nvfp4", "messages": [{"role": "user", "content": "안녕하세요"}]}'
+
+[12] 이미지 다시 받기 (check에서 transformers 범위 밖일 때)
+docker pull vllm/vllm-openai:v0.33.0
+
+자세한 설명: docs/guide.html

@@ -9,7 +9,8 @@
 #   ./serve.sh logs              로그
 #   ./serve.sh test              기능 점검
 #   ./serve.sh loadtest [옵션]   동시 사용자·초당 토큰 측정
-#   ./serve.sh test-all          모든 모델 test + loadtest → results/
+#   ./serve.sh eval [옵션]       코딩 과제 평가 (통과율) → results/eval/
+#   ./serve.sh test-all          모든 모델 test + loadtest + eval → results/
 #   ./serve.sh monitor up|down   Grafana 지표 수집
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -95,13 +96,16 @@ test)
 loadtest)
   shift; "$PY" scripts/loadtest.py "$@" ;;
 
+eval)
+  shift; "$PY" scripts/eval.py "$@" ;;
+
 test-all)
   out=results/$(date +%Y%m%d-%H%M); mkdir -p "$out"
   for m in $(names); do
     [[ -d $MODELS_DIR/$(dir_of "$m") ]] || continue
     echo "== $m"
     if ./serve.sh up "$m"; then
-      { ./serve.sh test; "$PY" scripts/loadtest.py; } 2>&1 | tee "$out/$m.txt"
+      { ./serve.sh test; "$PY" scripts/loadtest.py --csv "$out/$m.loadtest.csv"; "$PY" scripts/eval.py; } 2>&1 | tee "$out/$m.txt"
     else
       echo "기동 실패" > "$out/$m.txt"
     fi
@@ -117,5 +121,5 @@ monitor)
   fi ;;
 
 *)
-  sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//' ;;
+  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

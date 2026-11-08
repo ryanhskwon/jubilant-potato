@@ -1,6 +1,6 @@
 # jubilant-potato
 
-vLLM 0.33으로 6개 모델을 서빙합니다. 대상 서버는 Rocky Linux + RTX PRO 6000 1장이라 한 번에 한 모델만 띄웁니다. HTML 가이드: [docs/guide.html](docs/guide.html)
+vLLM 0.33으로 6개 모델을 서빙합니다. 대상 서버는 Rocky Linux + RTX PRO 6000 1장이라 한 번에 한 모델만 띄웁니다. HTML 가이드: [docs/guide.html](docs/guide.html) · 복붙용 명령어: [COMMANDS.txt](COMMANDS.txt)
 
 ## 준비
 
@@ -19,8 +19,9 @@ cp .env.example .env      # 외부에 열면 VLLM_API_KEY 설정
 ./serve.sh up qwen3.8-27b-nvfp4   # 실행 (실행 중인 모델은 자동으로 내림)
 ./serve.sh test                   # 텍스트, 도구 호출, 이미지, 속도
 ./serve.sh loadtest               # 동시 사용자 수별 응답 속도와 초당 토큰
+./serve.sh eval                   # 코딩 과제 평가 (통과율)
 ./serve.sh status | logs | down
-./serve.sh test-all               # 모든 모델 test + loadtest → results/
+./serve.sh test-all               # 모든 모델 test + loadtest + eval → results/
 ./serve.sh monitor up             # Grafana(:3000)로 상시 지표 수집
 ```
 
@@ -54,6 +55,23 @@ cp .env.example .env      # 외부에 열면 VLLM_API_KEY 설정
 
 - **동시 처리 한도:** yaml의 `max-num-seqs`(기본 8)를 넘는 요청은 대기합니다. 한계를 재려면 32~64로 올리고 다시 측정하세요.
 - **"동시 사용자"의 의미:** 같은 순간 요청 중인 수입니다. 실제 사용자는 쉬는 시간이 있으므로, 사용 비율이 20%라면 동시 8은 약 40명입니다. 실제 비율은 Grafana로 확인하세요.
+
+## 모델 선택 평가
+
+품질은 `eval`, 속도는 `loadtest`로 잽니다. 모델을 하나씩 띄워 두 가지를 모두 실행한 뒤 비교합니다.
+
+```bash
+./serve.sh up qwen3.8-27b-nvfp4 && ./serve.sh eval   # 모델마다 반복 (또는 ./serve.sh test-all)
+```
+
+- **평가 방식:** 모델이 도구(파일 목록·읽기·쓰기·테스트 실행)로 `evals/tasks/`의 과제를 풀고, 테스트 통과 여부로 채점합니다.
+- **결과:** 실행할 때마다 `results/eval/summary.csv`에 모델별 한 줄이 쌓이고, 통과율 순 비교표가 출력됩니다.
+- **과제 추가:** `evals/tasks/<이름>/`에 다음 세 가지를 넣습니다. 샘플 4개가 들어 있지만, 실제 업무 과제 20~50개로 바꿔야 의미 있는 비교가 됩니다.
+  - `task.md`: 지시문
+  - `files/`: 시작 코드
+  - `tests/test_*.py`: 채점용 unittest
+- **선택 기준:** 품질 기준(예: 통과율 70%)을 넘는 모델 중에서, `loadtest`의 최대 동시 사용자가 가장 많은 모델을 고릅니다.
+- **주의:** 모델이 작성한 코드가 서버의 임시 폴더에서 실행됩니다 (테스트당 60초 제한).
 
 ## 문제 해결
 
