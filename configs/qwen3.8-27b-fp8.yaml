@@ -1,0 +1,14 @@
+# Qwen3.8-27B FP8 — 사고·도구·이미지. 근거: vLLM 레시피 Qwen3.8-27B
+served-model-name: qwen3.8-27b-fp8
+max-model-len: 262144
+kv-cache-dtype: fp8
+gpu-memory-utilization: 0.92
+max-num-seqs: 8                 # 동시 처리 한도 (부하 테스트로 한계를 볼 땐 32~64로)
+max-num-batched-tokens: 8192
+enable-prefix-caching: true
+async-scheduling: true
+reasoning-parser: qwen3
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+limit-mm-per-prompt: '{"image": 4, "video": 0}'
+speculative-config: '{"method": "mtp", "num_speculative_tokens": 3}'   # 기동 실패 시 이 줄 삭제

@@ -1,0 +1,14 @@
+# Qwen3.8-27B NVFP4 (NVIDIA) — 레시피의 RTX PRO 6000 설정
+served-model-name: qwen3.8-27b-nvfp4
+max-model-len: 262144
+kv-cache-dtype: fp8
+gpu-memory-utilization: 0.92
+max-num-seqs: 8
+max-num-batched-tokens: 8192
+enable-prefix-caching: true
+async-scheduling: true
+reasoning-parser: qwen3
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+limit-mm-per-prompt: '{"image": 4, "video": 0}'
+speculative-config: '{"method": "mtp", "num_speculative_tokens": 5}'   # 기동 실패 시 이 줄 삭제

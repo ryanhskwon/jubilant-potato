@@ -1,0 +1,14 @@
+# Gemma 4 31B FP8-block — RedHatAI 모델 카드 기준 (TP2 → 1)
+# 도구 호출이 일반 텍스트로 나오면 reasoning-parser 줄 삭제 (vllm#39468)
+served-model-name: gemma-4-31b-it-fp8
+max-model-len: 131072
+gpu-memory-utilization: 0.92
+max-num-seqs: 8
+max-num-batched-tokens: 8192
+enable-prefix-caching: true
+async-scheduling: true
+reasoning-parser: gemma4
+enable-auto-tool-choice: true
+tool-call-parser: gemma4
+chat-template: /vllm-workspace/examples/tool_chat_template_gemma4.jinja
+limit-mm-per-prompt: '{"image": 4, "audio": 0}'

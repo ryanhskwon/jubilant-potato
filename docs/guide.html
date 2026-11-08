@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>jubilant-potato 실행 가이드</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@400;600;700&display=swap">
+<style>
+/* Layout: 한 열 운영 문서 — 단계별 명령 블록 + 표 */
+:root {
+  --bg: #f3f5f6; --surface: #ffffff; --ink: #18222b; --muted: #5a6872; --line: #d6dde1;
+  --accent: #0f6e6a; --accent-soft: #dcefed; --term-bg: #16212a; --term-ink: #d9e4ea; --term-dim: #7f97a5;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11181d; --surface: #18222a; --ink: #e3eaee; --muted: #93a3ad; --line: #2b3943;
+    --accent: #5cc4bb; --accent-soft: #163634; --term-bg: #0b1115; --term-ink: #d9e4ea; --term-dim: #6f8794;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11181d; --surface: #18222a; --ink: #e3eaee; --muted: #93a3ad; --line: #2b3943;
+  --accent: #5cc4bb; --accent-soft: #163634; --term-bg: #0b1115; --term-ink: #d9e4ea; --term-dim: #6f8794;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.65;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 36px 64px;
+}
+.wrap { max-width: 860px; margin: 0 auto; display: grid; gap: 40px; }
+h1, h2, h3 { margin: 0; line-height: 1.3; text-wrap: balance; }
+h1 { font-size: 1.8rem; }
+h2 { font-size: 1.3rem; }
+h3 { font-size: 1.05rem; }
+p { margin: 0; max-width: 68ch; }
+a { color: var(--accent); }
+:not(pre) > code { font-family: var(--font-mono); font-size: 0.88em; background: var(--accent-soft); padding: 0.1em 0.35em; border-radius: 4px; overflow-wrap: anywhere; }
+section, header { display: grid; gap: 14px; }
+.muted { color: var(--muted); }
+.eyebrow { font-family: var(--font-mono); font-size: 0.78rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 20px; counter-reset: s; }
+.steps > li { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: 12px; }
+.steps > li::before {
+  counter-increment: s; content: counter(s); width: 2rem; height: 2rem; border-radius: 50%;
+  display: grid; place-items: center; border: 1.5px solid var(--accent); color: var(--accent);
+  font: 600 0.9rem var(--font-mono);
+}
+.steps > li > div { display: grid; gap: 8px; min-width: 0; }
+
+.term { position: relative; background: var(--term-bg); color: var(--term-ink); border-radius: 8px; min-width: 0; }
+.term pre { margin: 0; padding: 12px 16px; padding-right: 5rem; overflow-x: auto; font: 0.85rem/1.6 var(--font-mono); }
+.term .c { color: var(--term-dim); }
+.copy {
+  position: absolute; top: 8px; right: 8px; font: 500 0.75rem var(--font-body); color: var(--term-ink);
+  background: transparent; border: 1px solid var(--term-dim); border-radius: 6px; padding: 3px 10px; cursor: pointer;
+}
+.copy:hover, .copy:focus-visible { border-color: var(--term-ink); outline: none; }
+
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.875rem; }
+th, td { text-align: left; padding: 9px 14px; border-top: 1px solid var(--line); vertical-align: top; }
+thead th { border-top: 0; font-size: 0.75rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+td.m { font-family: var(--font-mono); font-size: 0.82rem; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">vLLM 0.33 · RTX PRO 6000 × 1 · Rocky Linux</div>
+  <h1>jubilant-potato 실행 가이드</h1>
+  <p class="muted">6개 모델을 vLLM으로 서빙합니다. GPU가 1장이라 한 번에 한 모델만 띄우고, 모든 작업은 <code>./serve.sh</code>로 합니다. 저장소: <a href="https://github.com/ryanhskwon/jubilant-potato">github.com/ryanhskwon/jubilant-potato</a></p>
+</header>
+
+<section>
+  <h2>실행 순서</h2>
+  <ol class="steps">
+    <li><div>
+      <h3>받기와 설정</h3>
+      <div class="term"><button class="copy" type="button">복사</button><pre>git clone https://github.com/ryanhskwon/jubilant-potato.git
+cd jubilant-potato
+cp .env.example .env   <span class="c"># 외부에 열면 VLLM_API_KEY 설정</span></pre></div>
+    </div></li>
+    <li><div>
+      <h3>점검</h3>
+      <p>드라이버(R580 이상), 이미지의 vLLM·transformers 버전, 모델 폴더를 확인합니다. 모델별로 이미지 안에서 실제 로드까지 해 봅니다.</p>
+      <div class="term"><button class="copy" type="button">복사</button><pre>./serve.sh check</pre></div>
+    </div></li>
+    <li><div>
+      <h3>모델 실행</h3>
+      <p>실행 중인 모델은 자동으로 내려갑니다. 첫 실행은 10분 이상 걸릴 수 있습니다.</p>
+      <div class="term"><button class="copy" type="button">복사</button><pre>./serve.sh up qwen3.8-27b-nvfp4</pre></div>
+    </div></li>
+    <li><div>
+      <h3>테스트</h3>
+      <p><code>test</code>는 텍스트, 도구 호출, 이미지, 속도를 점검합니다. <code>loadtest</code>는 동시 사용자 수별 응답 속도와 초당 토큰을 잽니다.</p>
+      <div class="term"><button class="copy" type="button">복사</button><pre>./serve.sh test
+./serve.sh loadtest</pre></div>
+    </div></li>
+    <li><div>
+      <h3>연결</h3>
+      <p>코딩 에이전트 같은 OpenAI 호환 클라이언트에서 <code>http://&lt;서버&gt;:8000/v1</code>로 연결합니다. API 키는 <code>.env</code>의 <code>VLLM_API_KEY</code>, 모델 이름은 아래 표의 API 모델 이름입니다.</p>
+    </div></li>
+  </ol>
+</section>
+
+<section>
+  <h2>명령</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>명령</th><th>하는 일</th></tr></thead>
+    <tbody>
+      <tr><td class="m">list</td><td>모델 목록과 폴더 유무</td></tr>
+      <tr><td class="m">check</td><td>서버·이미지·모델 점검</td></tr>
+      <tr><td class="m">up &lt;모델&gt;</td><td>모델 실행</td></tr>
+      <tr><td class="m">status · logs · down</td><td>상태 · 로그 · 종료</td></tr>
+      <tr><td class="m">test</td><td>기능 점검</td></tr>
+      <tr><td class="m">loadtest [옵션]</td><td>동시 사용자·초당 토큰 측정</td></tr>
+      <tr><td class="m">test-all</td><td>모든 모델 test + loadtest → <code>results/</code></td></tr>
+      <tr><td class="m">monitor up|down</td><td>Grafana(:3000) 상시 지표 수집</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>모델</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>이름</th><th>API 모델 이름</th><th>컨텍스트</th><th>특징</th></tr></thead>
+    <tbody>
+      <tr><td class="m">qwen3.8-27b-fp8</td><td class="m">qwen3.8-27b-fp8</td><td>262K</td><td>사고, 이미지, MTP</td></tr>
+      <tr><td class="m">qwen3.8-27b-nvfp4</td><td class="m">qwen3.8-27b-nvfp4</td><td>262K</td><td>사고, 이미지, MTP</td></tr>
+      <tr><td class="m">qwen3.6-35b-a3b-fp8</td><td class="m">qwen3.6-35b-a3b-fp8</td><td>262K</td><td>MoE, 사고, 이미지, MTP</td></tr>
+      <tr><td class="m">gemma-4-31b-it-fp8</td><td class="m">gemma-4-31b-it-fp8</td><td>128K</td><td>사고, 이미지</td></tr>
+      <tr><td class="m">qwen3-coder-30b-a3b-fp8</td><td class="m">qwen3-coder-30b-a3b</td><td>262K</td><td>MoE, 코딩 전용</td></tr>
+      <tr><td class="m">qwen3-coder-next-fp8</td><td class="m">qwen3-coder-next</td><td>128K</td><td>80B MoE, 코딩 전용</td></tr>
+    </tbody>
+  </table></div>
+  <p class="muted">모델별 옵션은 <code>configs/&lt;이름&gt;.yaml</code>에 있습니다.</p>
+</section>
+
+<section>
+  <h2>지표 수집</h2>
+  <p><b>부하 테스트:</b> 동시 사용자를 1, 2, 4, 8, 16, 32로 늘려 가며 다음을 잽니다.</p>
+  <ul>
+    <li>첫 토큰까지 시간 (p50/p95)</li>
+    <li>사용자당 출력 속도</li>
+    <li>전체 초당 토큰</li>
+  </ul>
+  <p>목표를 지키는 최대 동시 사용자 수도 알려 줍니다. 기본 목표는 첫 토큰 p95 5초 이하, 사용자당 15 tok/s 이상입니다.</p>
+  <div class="term"><button class="copy" type="button">복사</button><pre>./serve.sh loadtest --users 1,4,8,16 --input 8000 --output 512 --ttft 3 --tps 20 --csv result.csv</pre></div>
+  <p class="muted">yaml의 <code>max-num-seqs</code>(기본 8)를 넘는 요청은 대기합니다. 한계를 재려면 32~64로 올리고 다시 측정하세요. 사용 비율이 20%라면 동시 사용자 8은 실제 사용자 약 40명입니다.</p>
+  <p><b>상시 수집:</b> <code>./serve.sh monitor up</code> 후 <code>http://&lt;서버&gt;:3000</code>에 접속합니다. 계정은 admin이고 비밀번호는 <code>.env</code>의 <code>GRAFANA_ADMIN_PASSWORD</code>입니다. 대시보드에서는 다음을 볼 수 있습니다.</p>
+  <ul>
+    <li>동시·대기 요청, 24시간 최대 동시 요청</li>
+    <li>초당 토큰, 사용자당 속도</li>
+    <li>첫 토큰 시간</li>
+    <li>KV 캐시 사용률, 캐시 적중률</li>
+  </ul>
+</section>
+
+<section id="troubleshooting">
+  <h2>트러블슈팅</h2>
+  <p class="muted">공통 순서는 <b>로그 확인 → <code>configs/&lt;모델&gt;.yaml</code> 수정 → <code>./serve.sh up &lt;모델&gt;</code>으로 다시 실행</b>입니다. yaml을 고친 뒤 다시 <code>up</code> 하면 바로 반영됩니다.</p>
+  <div class="term"><button class="copy" type="button">복사</button><pre>./serve.sh logs                                         <span class="c"># 전체 로그</span>
+docker compose --profile all logs | grep -iE "error|memory|KV cache"   <span class="c"># 핵심만</span>
+nvidia-smi                                              <span class="c"># GPU를 누가 쓰는지</span></pre></div>
+
+  <h3>메모리 부족 (OOM)</h3>
+  <p>vLLM은 기동할 때 메모리를 미리 잡기 때문에, OOM은 대부분 <b>기동 중</b>에 납니다. 로그 문구로 어느 단계인지 보고 아래 순서대로 하나씩 적용하세요.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>로그 문구</th><th>원인</th><th>조치 (위에서부터 시도)</th></tr></thead>
+    <tbody>
+      <tr><td><code>KV cache is needed, which is larger than the available KV cache memory</code></td><td>최대 컨텍스트 1개를 담을 KV 캐시 공간이 부족</td><td>① <code>max-model-len</code> 절반으로 (262144 → 131072)<br>② <code>gpu-memory-utilization: 0.95</code><br>③ <code>kv-cache-dtype: fp8</code> 확인 (Gemma 제외)</td></tr>
+      <tr><td><code>CUDA out of memory</code> — 가중치 로드 중 (<code>Loading weights</code> 직후)</td><td>모델이 GPU에 안 들어감</td><td>① <code>nvidia-smi</code>로 다른 프로세스 확인 → <code>./serve.sh down</code>, 남은 컨테이너 정리<br>② <code>gpu-memory-utilization: 0.95</code><br>③ 더 작은 양자화(NVFP4) 모델 사용. Coder-Next(약 80GB)가 여기에 해당할 수 있음</td></tr>
+      <tr><td><code>CUDA out of memory</code> — <code>Capturing CUDA graphs</code> 또는 compile 중</td><td>CUDA graph·활성화 메모리 부족</td><td>① <code>speculative-config</code> 줄 삭제 (MTP가 메모리를 더 씀)<br>② <code>max-num-seqs</code> 절반으로 (8 → 4)<br>③ <code>enforce-eager: true</code> 추가 (디코딩이 다소 느려짐)</td></tr>
+      <tr><td><code>No available memory for the cache blocks</code></td><td>가중치를 올리고 나니 KV 캐시 공간이 없음</td><td>① <code>gpu-memory-utilization: 0.95</code><br>② 위의 CUDA graph 조치 적용</td></tr>
+      <tr><td>이미지 처리(encoder, profiling) 중 OOM</td><td>이미지 입력용 메모리 예약</td><td>① <code>limit-mm-per-prompt</code>의 image를 4 → 1<br>② 텍스트만 쓰면 <code>language-model-only: true</code> 추가</td></tr>
+      <tr><td>사용 중 OOM, 또는 긴 요청에서 컨테이너 종료</td><td>긴 프롬프트 처리 중 활성화 메모리 급증</td><td>① <code>max-num-batched-tokens</code> 절반으로 (8192 → 4096)<br>② <code>gpu-memory-utilization</code>를 0.90으로 낮춰 여유 확보</td></tr>
+    </tbody>
+  </table></div>
+  <p class="muted">정상 기동 시 로그의 <code>Available KV cache memory</code>, <code>GPU KV cache size: N tokens</code>, <code>Maximum concurrency for N tokens per request: Xx</code> 줄을 보면 남은 여유를 알 수 있습니다. X가 1 미만이면 최대 길이 요청 1개도 못 담는 상태입니다.</p>
+
+  <h3>그 밖의 증상</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>증상</th><th>조치</th></tr></thead>
+    <tbody>
+      <tr><td><code>could not select device driver "nvidia"</code></td><td>nvidia-container-toolkit 설치 후 <code>sudo nvidia-ctk runtime configure --runtime=docker</code>, <code>sudo systemctl restart docker</code></td></tr>
+      <tr><td><code>CUDA driver version is insufficient</code></td><td>드라이버를 R580 이상으로 업데이트 (vLLM 0.33은 CUDA 13)</td></tr>
+      <tr><td>check: transformers 범위 밖 · 모델 로드 FAIL</td><td>공식 이미지 다시 받기 <code>docker pull vllm/vllm-openai:v0.33.0</code>. 컨테이너 안에서 transformers를 올리지 않기</td></tr>
+      <tr><td>check: git-lfs 포인터</td><td>모델 폴더에서 <code>git lfs pull</code></td></tr>
+      <tr><td><code>unrecognized arguments</code> · 지원하지 않는 옵션</td><td>로그에 나온 옵션 줄을 yaml에서 삭제</td></tr>
+      <tr><td>Qwen 기동 실패 (speculative / mtp 관련 오류)</td><td>yaml의 <code>speculative-config</code> 줄 삭제</td></tr>
+      <tr><td><code>Permission denied</code> (/models)</td><td>모델 폴더 권한 <code>chmod -R a+rX /data/models</code></td></tr>
+      <tr><td><code>address already in use</code></td><td><code>.env</code>의 <code>HOST_PORT</code> 변경 또는 8000 포트를 쓰는 프로세스 종료</td></tr>
+      <tr><td>기동이 끝나지 않음</td><td>첫 실행은 컴파일로 10분 이상 걸릴 수 있음. <code>./serve.sh logs</code>로 진행 확인</td></tr>
+      <tr><td>API 401 Unauthorized</td><td>요청 헤더 <code>Authorization: Bearer &lt;VLLM_API_KEY&gt;</code></td></tr>
+      <tr><td>API 404 model not found</td><td>API 모델 이름(모델 표) 사용. <code>./serve.sh status</code>로 확인</td></tr>
+      <tr><td>도구 호출이 일반 텍스트로 나옴 (Gemma)</td><td>yaml의 <code>reasoning-parser</code> 줄 삭제 (vllm#39468)</td></tr>
+      <tr><td>반복되거나 깨진 출력</td><td>① <code>speculative-config</code> 삭제 후 비교<br>② Gemma FP8-block이면 다른 모델로 확인 (vllm#39407)</td></tr>
+      <tr><td>응답이 느림, 첫 토큰이 늦음</td><td>Grafana에서 대기 요청과 KV 캐시 사용률 확인. 대기가 있으면 <code>max-num-seqs</code> 증가 (메모리 여유가 있을 때), KV가 꽉 차면 <code>max-model-len</code> 축소</td></tr>
+      <tr><td>디스크 부족</td><td><code>du -sh cache</code> — 컴파일 캐시는 지워도 됨 (다음 기동이 느려질 뿐). 모델 폴더의 <code>.git</code>도 큼</td></tr>
+      <tr><td>Grafana에 데이터 없음</td><td>모델이 실행 중인지 확인 → 서버에서 <code>curl localhost:9090/api/v1/targets</code>로 vllm 수집 상태 확인</td></tr>
+      <tr><td>재부팅 후 모델이 저절로 뜸</td><td>의도된 동작 (restart: unless-stopped). 원치 않으면 <code>./serve.sh down</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>파일</h2>
+  <div class="table-wrap"><table>
+    <tbody>
+      <tr><td class="m">serve.sh</td><td>모든 작업 실행</td></tr>
+      <tr><td class="m">compose.yaml</td><td>모델 6개 + Prometheus·Grafana</td></tr>
+      <tr><td class="m">configs/*.yaml</td><td>모델별 vLLM 옵션</td></tr>
+      <tr><td class="m">scripts/test.py</td><td>기능 점검</td></tr>
+      <tr><td class="m">scripts/loadtest.py</td><td>부하 테스트</td></tr>
+      <tr><td class="m">scripts/check_image.py</td><td>이미지 호환성 검사 (check가 사용)</td></tr>
+      <tr><td class="m">monitoring/</td><td>Prometheus 설정, Grafana 대시보드</td></tr>
+      <tr><td class="m">.env.example</td><td>서버별 설정 견본</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+</div>
+
+<script>
+document.querySelectorAll('.term').forEach(function (box) {
+  var btn = box.querySelector('.copy'), pre = box.querySelector('pre');
+  btn.addEventListener('click', function () {
+    var text = pre.innerText.split('\n').map(function (l) { return l.replace(/\s+#.*$/, ''); }).join('\n').trim();
+    var reset = function () { setTimeout(function () { btn.textContent = '복사'; }, 1500); };
+    var fallback = function () {
+      var r = document.createRange(); r.selectNodeContents(pre);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      btn.textContent = '선택됨'; reset();
+    };
+    try { navigator.clipboard.writeText(text).then(function () { btn.textContent = '복사됨'; reset(); }, fallback); }
+    catch (e) { fallback(); }
+  });
+});
+</script>
+</body>
+</html>
