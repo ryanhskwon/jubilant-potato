@@ -1,60 +1,155 @@
 #!/usr/bin/env python3
-"""Measure latency and throughput while raising the number of concurrent users, and find
-the max concurrent users that meets the target (first-token p95 <= --ttft s, per user >= --tps tok/s).
+"""Capacity test shaped like a vulnerability scan + fix agent.
 
-e.g. ./serve.sh loadtest --users 1,4,8,16 --input 8000 --output 512 --ttft 3 --tps 20
+Each simulated user runs scan sessions back to back. A session starts from the user's own
+code (real .py files from this machine's Python install, about --context tokens) and makes
+--turns model calls. Every turn appends the model's answer and a tool result (more code,
+about --tool-output tokens), so the prompt grows like a real agent and the prefix cache
+only helps within a session. Concurrency steps up through --users, --duration s per step.
+
+Output: TTFT, output tok/s per request, latency, server KV cache and queue per step, then
+max concurrent sessions under the target, sessions per hour and registered users.
+Saved to results/loadtest/<model>-<date>.txt and .csv.
+
+e.g. ./serve.sh loadtest
+     ./serve.sh loadtest --users 4,8,16 --duration 120 --context 30000
 """
 import argparse
+import csv
+import glob
 import json
 import os
 import random
+import threading
 import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 p = argparse.ArgumentParser()
-p.add_argument("--users", default="1,2,4,8,16,32", help="concurrent user steps")
-p.add_argument("--input", type=int, default=4000, help="input tokens per request (approx., 75%% shared by all requests)")
-p.add_argument("--output", type=int, default=256, help="output tokens per request")
-p.add_argument("--rounds", type=int, default=3, help="requests each user sends per step")
-p.add_argument("--ttft", type=float, default=5.0, help="target: first-token p95 (seconds)")
-p.add_argument("--tps", type=float, default=15.0, help="target: output speed per user (tok/s)")
-p.add_argument("--csv", default="", help="path to save results as CSV")
+p.add_argument("--users", default="1,2,4,8,12,16,24,32,48,64", help="concurrent sessions per step")
+p.add_argument("--duration", type=int, default=180, help="seconds per step")
+p.add_argument("--context", type=int, default=20000, help="code tokens at the start of a session")
+p.add_argument("--turns", type=int, default=8, help="model calls per session")
+p.add_argument("--output", type=int, default=512, help="output tokens per call")
+p.add_argument("--tool-output", type=int, default=1000, help="code tokens added per turn as a tool result")
+p.add_argument("--ttft", type=float, default=5.0, help="target: TTFT p95 (seconds)")
+p.add_argument("--tps", type=float, default=20.0, help="target: 95%% of calls at least this many output tok/s")
+p.add_argument("--batch-sessions", type=int, default=0, help="sessions reserved for daytime batch jobs")
+p.add_argument("--csv", default="", help="CSV path (default: next to the .txt report)")
+p.add_argument("--out", default="results/loadtest", help="report folder")
 args = p.parse_args()
 
 URL = os.environ.get("VLLM_URL", "http://127.0.0.1:8000/v1")
+BASE = URL[:-3] if URL.endswith("/v1") else URL
 HEADERS = {"Content-Type": "application/json", "Authorization": "Bearer " + os.environ.get("VLLM_API_KEY", "")}
 MODEL = json.load(urllib.request.urlopen(urllib.request.Request(URL + "/models", headers=HEADERS), timeout=10))["data"][0]["id"]
+FIRST_TOKEN_KEYS = ("content", "reasoning_content", "reasoning")
+SYSTEM = ("You are a security engineer agent. Find vulnerabilities in the user's code, name each with its CWE, "
+          "and write patches that fix them without changing behavior. Ask for more files with tools when needed.")
+STOP = threading.Event()
+
+SRC = os.path.dirname(os.__file__)
+FILES = [f for f in glob.glob(os.path.join(SRC, "**", "*.py"), recursive=True) if os.path.getsize(f) > 2000]
+if not FILES:
+    raise SystemExit("no .py files found under " + SRC)
+chars_per_token = 3.5
 
 
 def code(tokens):
-    """Code text of about `tokens` tokens (1 token ~ 3.5 chars)."""
-    line = "def f_{0}(x):\n    return x * {0} + {1}\n\n"
-    return "".join(line.format(i, random.randint(0, 99)) for i in range(int(tokens * 3.5 / 40)))
+    """Real source files concatenated to about `tokens` tokens."""
+    budget = int(tokens * chars_per_token)
+    parts, size = [], 0
+    while size < budget:
+        path = random.choice(FILES)
+        with open(path, encoding="utf-8", errors="replace") as f:
+            part = "### File: {}\n{}".format(os.path.relpath(path, SRC), f.read())[:budget - size]
+        parts.append(part)
+        size += len(part)
+    return "\n\n".join(parts)
 
 
-SHARED = code(args.input * 0.75)  # shared by all requests (acts as system prompt / repo context -> prefix cache target)
-
-
-def one(_):
-    body = {
-        "model": MODEL, "stream": True, "max_tokens": args.output, "min_tokens": args.output, "ignore_eos": True,
-        "stream_options": {"include_usage": True},
-        "messages": [{"role": "system", "content": SHARED},
-                     {"role": "user", "content": code(args.input * 0.25) + "\nReview this code. #" + str(random.random())}],
-    }
-    t0, first, n = time.time(), None, 0
-    req = urllib.request.Request(URL + "/chat/completions", json.dumps(body).encode(), HEADERS)
-    for line in urllib.request.urlopen(req, timeout=1800):
-        if line.startswith(b"data: {"):
+def call(messages, max_tokens):
+    body = {"model": MODEL, "messages": messages, "stream": True, "stream_options": {"include_usage": True},
+            "max_tokens": max_tokens, "min_tokens": max_tokens, "ignore_eos": True}
+    t0, first, n_out, n_in, text = time.time(), None, 0, 0, []
+    try:
+        req = urllib.request.Request(URL + "/chat/completions", json.dumps(body).encode(), HEADERS)
+        for line in urllib.request.urlopen(req, timeout=1800):
+            if not line.startswith(b"data: {"):
+                continue
             d = json.loads(line[6:])
-            n = (d.get("usage") or {}).get("completion_tokens", n)
-            delta = (d.get("choices") or [{}])[0].get("delta", {})
-            if first is None and any(delta.get(k) for k in ("content", "reasoning_content", "reasoning")):
+            usage = d.get("usage") or {}
+            n_out = usage.get("completion_tokens", n_out)
+            n_in = usage.get("prompt_tokens", n_in)
+            delta = (d.get("choices") or [{}])[0].get("delta") or {}
+            if first is None and any(delta.get(k) for k in FIRST_TOKEN_KEYS):
                 first = time.time()
+            if delta.get("content"):
+                text.append(delta["content"])
+    except Exception as e:  # noqa: BLE001
+        return {"err": str(e)[:100]}
     end = time.time()
     first = first or end
-    return first - t0, n / max(end - first, 1e-6), n
+    return {"err": "", "ttft": first - t0, "e2e": end - t0, "n_out": n_out, "n_in": n_in, "text": "".join(text),
+            "tps": (n_out - 1) / (end - first) if n_out > 1 and end > first else 0.0}
+
+
+def user(deadline, results):
+    time.sleep(random.uniform(0, min(10, args.duration / 10)))
+    while time.time() < deadline and not STOP.is_set():
+        messages = [{"role": "system", "content": SYSTEM},
+                    {"role": "user", "content": "Scan this code for security vulnerabilities and fix them.\n\n" + code(args.context)}]
+        for _ in range(args.turns):
+            if time.time() >= deadline or STOP.is_set():
+                return
+            r = call(messages, args.output)
+            results.append(r)
+            if r["err"]:
+                time.sleep(1)
+                break
+            messages.append({"role": "assistant", "content": r["text"] or "(no text)"})
+            messages.append({"role": "user", "content": "Tool result (read_file):\n" + code(args.tool_output)})
+
+
+def scrape():
+    try:
+        req = urllib.request.Request(BASE + "/metrics", headers=HEADERS)
+        text = urllib.request.urlopen(req, timeout=5).read().decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001
+        return {}
+    vals = {}
+    for line in text.splitlines():
+        if not line.startswith("vllm:"):
+            continue
+        fields = line.split("}")[-1].split() if "}" in line else line.split()[1:]
+        try:
+            v = float(fields[0])
+        except (IndexError, ValueError):
+            continue
+        name = line.split("{")[0].split()[0]
+        vals[name] = vals.get(name, 0.0) + v
+    return vals
+
+
+GAUGES = ("vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_perc", "vllm:num_requests_waiting",
+          "vllm:num_requests_running")
+
+
+def sample(stop, srv):
+    srv["start"] = scrape()
+    while not stop.wait(2):
+        s = scrape()
+        if s:
+            srv["end"] = s
+        for k in GAUGES:
+            if k in s:
+                srv[k] = max(srv.get(k, 0.0), s[k])
+    srv["end"] = scrape() or srv.get("end", {})
+
+
+def delta(srv, name):
+    a, b = srv.get("start", {}), srv.get("end", {})
+    return b[name] - a[name] if name in a and name in b else None
 
 
 def pct(values, q):
@@ -62,34 +157,141 @@ def pct(values, q):
     return s[min(int(len(s) * q / 100), len(s) - 1)] if s else 0.0
 
 
-print("model {} | input {} / output {} tokens | target: first-token p95 <= {}s, per user >= {} tok/s\n".format(
-    MODEL, args.input, args.output, args.ttft, args.tps))
-print("{:>6} {:>12} {:>12} {:>14} {:>14} {:>6}".format("users", "TTFT p50", "TTFT p95", "tok/s per user", "total tok/s", "target"))
-one(0)  # warm-up (loads the shared part into the cache)
-rows, best = [], None
-for users in [int(x) for x in args.users.split(",")]:
+def step(users):
+    results, srv, stop = [], {}, threading.Event()
+    sampler = threading.Thread(target=sample, args=(stop, srv), daemon=True)
+    sampler.start()
     t0 = time.time()
     with ThreadPoolExecutor(users) as ex:
-        res = list(ex.map(one, range(users * args.rounds)))
+        list(ex.map(lambda _: user(t0 + args.duration, results), range(users)))
     wall = time.time() - t0
-    ttft, tps = [r[0] for r in res], [r[1] for r in res]
-    row = dict(users=users, ttft_p50=pct(ttft, 50), ttft_p95=pct(ttft, 95), tps_user=pct(tps, 50),
-               tps_total=sum(r[2] for r in res) / wall)
-    row["ok"] = row["ttft_p95"] <= args.ttft and pct(tps, 5) >= args.tps
-    rows.append(row)
-    if row["ok"]:
-        best = row
-    print("{users:>6} {ttft_p50:>11.2f}s {ttft_p95:>11.2f}s {tps_user:>14.1f} {tps_total:>14.0f} {0:>6}".format(
-        "OK" if row["ok"] else "X", **row), flush=True)
-    if not row["ok"] and len(rows) > 1 and not rows[-2]["ok"]:
-        break  # stop after two consecutive steps miss the target
+    stop.set()
+    sampler.join()
 
-print()
+    done = [r for r in results if not r["err"]]
+    kv = srv.get("vllm:kv_cache_usage_perc", srv.get("vllm:gpu_cache_usage_perc"))
+    if kv is not None and kv <= 1.0:
+        kv *= 100
+    hits, queries = delta(srv, "vllm:prefix_cache_hits_total"), delta(srv, "vllm:prefix_cache_queries_total")
+    preempt = delta(srv, "vllm:num_preemptions_total")
+    row = {
+        "users": users, "requests": len(done), "errors": len(results) - len(done),
+        "ttft_p50": pct([r["ttft"] for r in done], 50), "ttft_p95": pct([r["ttft"] for r in done], 95),
+        "ttft_p99": pct([r["ttft"] for r in done], 99),
+        "tps_p50": pct([r["tps"] for r in done], 50), "tps_p5": pct([r["tps"] for r in done], 5),
+        "lat_p50": pct([r["e2e"] for r in done], 50), "lat_p95": pct([r["e2e"] for r in done], 95),
+        "lat_mean": sum(r["e2e"] for r in done) / len(done) if done else 0.0,
+        "in_tokens_avg": sum(r["n_in"] for r in done) / len(done) if done else 0.0,
+        "out_tps": sum(r["n_out"] for r in done) / wall,
+        "sessions_per_hour": len(done) / args.turns / wall * 3600,
+        "kv_max": kv, "waiting_max": srv.get("vllm:num_requests_waiting"),
+        "running_max": srv.get("vllm:num_requests_running"),
+        "prefix_hit": hits / queries if hits is not None and queries else None, "preemptions": preempt,
+    }
+    row["ok"] = bool(done) and not row["errors"] and row["ttft_p95"] <= args.ttft and row["tps_p5"] >= args.tps
+    if (kv is not None and kv >= 90) or (preempt or 0) > 0:
+        row["limit"] = "KV"
+    elif (row["waiting_max"] or 0) > 0:
+        row["limit"] = "seqs"
+    else:
+        row["limit"] = "-" if row["ok"] else "gpu"
+    return row
+
+
+def config_max_num_seqs():
+    for path in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "configs", "*.yaml")):
+        lines = [l.split("#")[0].strip() for l in open(path)]
+        if "served-model-name: " + MODEL in lines:
+            for l in lines:
+                if l.startswith("max-num-seqs:"):
+                    return int(l.split(":")[1])
+    return None
+
+
+os.makedirs(args.out, exist_ok=True)
+stamp = time.strftime("%Y%m%d-%H%M")
+report_path = os.path.join(args.out, "{}-{}.txt".format(MODEL, stamp))
+csv_path = args.csv or os.path.join(args.out, "{}-{}.csv".format(MODEL, stamp))
+report = open(report_path, "w")
+
+
+def out(line=""):
+    print(line, flush=True)
+    report.write(line + "\n")
+    report.flush()
+
+
+max_seqs = config_max_num_seqs()
+out("model {} | max-num-seqs {}".format(MODEL, max_seqs if max_seqs is not None else "?"))
+out("session: {} code tok + {} turns x ({} out + {} tool tok), {}s per step".format(
+    args.context, args.turns, args.output, args.tool_output, args.duration))
+out("target: TTFT p95 <= {:g}s and 95% of calls >= {:g} tok/s (tok/s p5)".format(args.ttft, args.tps))
+out("note: no pause between turns (worst case); MTP speedup depends on the code")
+
+sample_text = code(2000)
+warm = call([{"role": "user", "content": sample_text}], 16)
+if warm["err"]:
+    raise SystemExit("warm-up failed: " + warm["err"])
+if warm["n_in"]:
+    chars_per_token = len(sample_text) / warm["n_in"]
+out("warm-up ok, {:.1f} chars per token\n".format(chars_per_token))
+
+out("{:>5} {:>8} {:>8} {:>8} {:>8} {:>8} {:>9} {:>5} {:>5} {:>4}".format(
+    "users", "TTFT p50", "TTFT p95", "tok/s50", "tok/s p5", "lat p95", "out tok/s", "KV%", "limit", "SLO"))
+rows = []
+try:
+    for n in [int(x) for x in args.users.split(",")]:
+        r = step(n)
+        rows.append(r)
+        out("{users:>5} {ttft_p50:>7.2f}s {ttft_p95:>7.2f}s {tps_p50:>8.1f} {tps_p5:>8.1f} {lat_p95:>7.1f}s "
+            "{out_tps:>9.0f} {kv:>5} {limit:>5} {ok:>4}{err}".format(
+                kv="-" if r["kv_max"] is None else "{:.0f}".format(r["kv_max"]), ok="OK" if r["ok"] else "X",
+                err="  errors {}".format(r["errors"]) if r["errors"] else "", **{k: v for k, v in r.items() if k != "ok"}))
+        if not r["ok"] and len(rows) > 1 and not rows[-2]["ok"]:
+            break  # two failing steps in a row: past the limit
+except KeyboardInterrupt:
+    STOP.set()
+    out("stopped by Ctrl+C, summary of finished steps:")
+
+with open(csv_path, "w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=list(rows[0]) if rows else ["users"])
+    w.writeheader()
+    w.writerows(rows)
+
+out()
+out("in tokens per call: {:.0f} avg".format(sum(r["in_tokens_avg"] for r in rows) / len(rows) if rows else 0))
+out("limit: KV = KV cache full, seqs = queue at max-num-seqs,")
+out("       gpu = slow without a queue")
+out()
+best = max((r for r in rows if r["ok"]), key=lambda r: r["users"], default=None)
+after = [r["users"] for r in rows if best and r["users"] > best["users"]]
 if best:
-    print("max concurrent users meeting the target: {users} ({tps_user:.1f} tok/s per user, {tps_total:.0f} tok/s total)".format(**best))
+    out("CAPACITY")
+    out("  max concurrent sessions : {}{}".format(
+        best["users"], " (limit is between {} and {})".format(best["users"], after[0]) if after else
+        " (every step passed, try larger --users)"))
+    out("  at that load            : TTFT p95 {:.1f}s, {:.0f} tok/s per call, latency p95 {:.1f}s".format(
+        best["ttft_p95"], best["tps_p50"], best["lat_p95"]))
+    out("  one scan + fix session  : {} calls, about {:.0f}s".format(args.turns, best["lat_mean"] * args.turns))
 else:
-    print("no step met the target (relax --ttft, --tps or reduce --input)")
-if args.csv:
-    with open(args.csv, "w") as f:
-        f.write("users,ttft_p50,ttft_p95,tps_user,tps_total,ok\n")
-        f.writelines("{users},{ttft_p50:.3f},{ttft_p95:.3f},{tps_user:.2f},{tps_total:.1f},{ok}\n".format(**r) for r in rows)
+    out("CAPACITY: no step met the target (relax --ttft / --tps or lower --context)")
+if rows:
+    top = max(rows, key=lambda r: r["sessions_per_hour"])
+    out("  batch max throughput    : {:.0f} sessions/hour at {} concurrent (no target)".format(
+        top["sessions_per_hour"], top["users"]))
+if best:
+    n = best["users"] - args.batch_sessions
+    out("  registered users = interactive sessions / share of work time spent scanning")
+    out("    " + ("" if after else "at least ") +
+        "   ".join("{}% -> {}".format(s, max(0, int(n * 100 / s))) for s in (5, 10, 25, 50)))
+    if args.batch_sessions:
+        out("    ({} of {} sessions kept for batch jobs)".format(args.batch_sessions, best["users"]))
+    if after:
+        out("  suggested max-num-seqs  : {} (more requests wait instead of slowing everyone)".format(best["users"]))
+first_fail = next((r for r in rows if not r["ok"]), None)
+if first_fail and first_fail["limit"] == "seqs":
+    out("  WARN: the queue came from max-num-seqs {}, not the GPU. Raise it in".format(max_seqs))
+    out("        configs/<model>.yaml, ./serve.sh up again, and rerun.")
+out()
+out("saved: " + report_path)
+out("       " + csv_path)

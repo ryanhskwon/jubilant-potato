@@ -10,7 +10,7 @@
 #   ./serve.sh logs              logs
 #   ./serve.sh errors            error / memory / KV cache lines from the logs
 #   ./serve.sh test              feature check
-#   ./serve.sh loadtest [opts]   measure concurrent users and tokens/s
+#   ./serve.sh loadtest [opts]   capacity: TTFT, tok/s, latency, how many users
 #   ./serve.sh eval [opts]       coding task eval (pass rate) -> results/eval/
 #   ./serve.sh test-all          test + loadtest + eval, all models -> results/
 #   ./serve.sh monitor up|down   Grafana metrics collection

@@ -23,9 +23,11 @@ git pull
 [4] Test
 ./serve.sh test                          # text, tool calls, images, speed
 
-[5] Load test (concurrent users, tokens/s)
-./serve.sh loadtest
-./serve.sh loadtest --users 1,4,8,16 --input 8000 --output 512 --ttft 3 --tps 20 --csv result.csv
+[5] Load test / capacity (TTFT, tok/s, latency, how many users)
+./serve.sh loadtest                      # up to ~35 min, scan+fix sessions
+./serve.sh loadtest --users 1,2 --duration 30   # quick try, ~1 min
+./serve.sh loadtest --context 30000      # bigger code per session
+less results/loadtest/<model>-<date>.txt # report (also a .csv)
 
 [6] Model eval (coding task pass rate)
 ./serve.sh eval
@@ -52,7 +54,7 @@ vi configs/qwen3.8-27b-nvfp4.yaml
 #   1) halve max-model-len           262144 -> 131072
 #   2) gpu-memory-utilization        0.92 -> 0.95
 #   3) delete the speculative-config line
-#   4) halve max-num-seqs            8 -> 4
+#   4) halve max-num-seqs            64 -> 32
 #   5) add enforce-eager: true
 ./serve.sh up qwen3.8-27b-nvfp4
 
