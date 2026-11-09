@@ -26,6 +26,8 @@ git pull
 [5] Load test / capacity (TTFT, tok/s, latency, how many users)
 ./serve.sh loadtest                      # up to ~35 min, scan+fix sessions
 ./serve.sh loadtest --users 1,2 --duration 30   # quick try, ~1 min
+./serve.sh loadtest --users 1,2,4,8,12,16   # 15 developers: is 16 OK?
+./serve.sh loadtest --natural --users 1,4   # real wait time, model stops itself
 ./serve.sh loadtest --context 30000      # bigger code per session
 less results/loadtest/<model>-<date>.txt # report (also a .csv)
 

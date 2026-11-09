@@ -31,6 +31,8 @@ p.add_argument("--duration", type=int, default=180, help="seconds per step")
 p.add_argument("--context", type=int, default=20000, help="code tokens at the start of a session")
 p.add_argument("--turns", type=int, default=8, help="model calls per session")
 p.add_argument("--output", type=int, default=512, help="output tokens per call")
+p.add_argument("--natural", action="store_true",
+               help="let the model stop on its own (up to 4096 tokens per call) to see real wait times")
 p.add_argument("--tool-output", type=int, default=1000, help="code tokens added per turn as a tool result")
 p.add_argument("--ttft", type=float, default=5.0, help="target: TTFT p95 (seconds)")
 p.add_argument("--tps", type=float, default=20.0, help="target: 95%% of calls at least this many output tok/s")
@@ -53,6 +55,7 @@ FILES = [f for f in glob.glob(os.path.join(SRC, "**", "*.py"), recursive=True) i
 if not FILES:
     raise SystemExit("no .py files found under " + SRC)
 chars_per_token = 3.5
+NATURAL_CAP = 4096
 
 
 def code(tokens):
@@ -68,9 +71,11 @@ def code(tokens):
     return "\n\n".join(parts)
 
 
-def call(messages, max_tokens):
+def call(messages, max_tokens, fixed=True):
     body = {"model": MODEL, "messages": messages, "stream": True, "stream_options": {"include_usage": True},
-            "max_tokens": max_tokens, "min_tokens": max_tokens, "ignore_eos": True}
+            "max_tokens": max_tokens}
+    if fixed:
+        body.update(min_tokens=max_tokens, ignore_eos=True)
     t0, first, n_out, n_in, text = time.time(), None, 0, 0, []
     try:
         req = urllib.request.Request(URL + "/chat/completions", json.dumps(body).encode(), HEADERS)
@@ -102,7 +107,7 @@ def user(deadline, results):
         for _ in range(args.turns):
             if time.time() >= deadline or STOP.is_set():
                 return
-            r = call(messages, args.output)
+            r = call(messages, NATURAL_CAP if args.natural else args.output, fixed=not args.natural)
             results.append(r)
             if r["err"]:
                 time.sleep(1)
@@ -182,6 +187,7 @@ def step(users):
         "lat_p50": pct([r["e2e"] for r in done], 50), "lat_p95": pct([r["e2e"] for r in done], 95),
         "lat_mean": sum(r["e2e"] for r in done) / len(done) if done else 0.0,
         "in_tokens_avg": sum(r["n_in"] for r in done) / len(done) if done else 0.0,
+        "out_tokens_avg": sum(r["n_out"] for r in done) / len(done) if done else 0.0,
         "out_tps": sum(r["n_out"] for r in done) / wall,
         "sessions_per_hour": len(done) / args.turns / wall * 3600,
         "kv_max": kv, "waiting_max": srv.get("vllm:num_requests_waiting"),
@@ -223,8 +229,9 @@ def out(line=""):
 
 max_seqs = config_max_num_seqs()
 out("model {} | max-num-seqs {}".format(MODEL, max_seqs if max_seqs is not None else "?"))
-out("session: {} code tok + {} turns x ({} out + {} tool tok), {}s per step".format(
-    args.context, args.turns, args.output, args.tool_output, args.duration))
+out("session: {} tok code, {} calls x ({} + {} tool tok), {}s/step".format(
+    args.context, args.turns, "out<={}".format(NATURAL_CAP) if args.natural else "{} out".format(args.output),
+    args.tool_output, args.duration))
 out("target: TTFT p95 <= {:g}s and 95% of calls >= {:g} tok/s (tok/s p5)".format(args.ttft, args.tps))
 out("note: no pause between turns (worst case); MTP speedup depends on the code")
 
@@ -259,7 +266,9 @@ with open(csv_path, "w", newline="") as f:
     w.writerows(rows)
 
 out()
-out("in tokens per call: {:.0f} avg".format(sum(r["in_tokens_avg"] for r in rows) / len(rows) if rows else 0))
+out("tokens per call: {:.0f} in, {:.0f} out (avg, out includes thinking)".format(
+    sum(r["in_tokens_avg"] for r in rows) / len(rows) if rows else 0,
+    sum(r["out_tokens_avg"] for r in rows) / len(rows) if rows else 0))
 out("limit: KV = KV cache full, seqs = queue at max-num-seqs,")
 out("       gpu = slow without a queue")
 out()
