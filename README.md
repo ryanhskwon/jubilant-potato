@@ -34,9 +34,10 @@ cp .env.example .env      # 외부에 열면 VLLM_API_KEY 설정
 | `qwen3.8-27b-fp8` | `qwen3.8-27b-fp8` | 262K | 사고, 이미지, MTP |
 | `qwen3.8-27b-nvfp4` | `qwen3.8-27b-nvfp4` | 262K | 사고, 이미지, MTP |
 | `qwen3.6-35b-a3b-fp8` | `qwen3.6-35b-a3b-fp8` | 262K | MoE, 사고, 이미지 (MTP 끔: 0.33에서 기동 오류) |
-| `gemma-4-31b-it-fp8` | `gemma-4-31b-it-fp8` | 128K | 사고, 이미지 |
+| `gemma-4-26b-a4b-it` | `gemma-4-26b-a4b-it` | 128K | MoE (활성 약 4B), 사고, 이미지 |
 | `qwen3-coder-30b-a3b-fp8` | `qwen3-coder-30b-a3b` | 262K | MoE, 코딩 전용 |
 | `qwen3-coder-next-fp8` | `qwen3-coder-next` | 128K | 80B MoE, 코딩 전용 |
+| `gemma-4-31b-it-fp8` | `gemma-4-31b-it-fp8` | 128K | 사고, 이미지 (긴 입력 처리가 느려 26B로 교체, 기록용) |
 
 모델별 옵션은 `configs/<이름>.yaml`에 있습니다.
 

@@ -37,6 +37,10 @@ services:
     <<: *vllm
     profiles: [qwen3.6-35b-a3b-fp8, all]
     command: [--model, /models/Qwen3.6-35B-A3B-FP8, --config, /configs/qwen3.6-35b-a3b-fp8.yaml]
+  gemma-4-26b-a4b-it:
+    <<: *vllm
+    profiles: [gemma-4-26b-a4b-it, all]
+    command: [--model, /models/gemma-4-26B-A4B-it, --config, /configs/gemma-4-26b-a4b-it.yaml]
   gemma-4-31b-it-fp8:
     <<: *vllm
     profiles: [gemma-4-31b-it-fp8, all]
