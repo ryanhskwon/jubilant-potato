@@ -1,5 +1,5 @@
 def median(values):
-    """values의 중앙값. 빈 리스트면 ValueError."""
+    """Median of values. Raises ValueError on an empty list."""
     if not values:
         raise ValueError("empty")
     s = sorted(values)

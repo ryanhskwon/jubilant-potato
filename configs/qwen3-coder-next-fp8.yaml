@@ -1,5 +1,5 @@
-# Qwen3-Coder-Next FP8 (80B MoE) — 가중치만 약 80GB라 96GB에 빠듯함
-# 메모리 부족으로 기동 실패 시: enforce-eager: true 추가 → 그래도 안 되면 max-model-len 65536
+# Qwen3-Coder-Next FP8 (80B MoE) - weights alone are ~80GB, tight on 96GB
+# If startup fails with OOM: add enforce-eager: true -> if still failing, max-model-len 65536
 served-model-name: qwen3-coder-next
 max-model-len: 131072
 kv-cache-dtype: fp8

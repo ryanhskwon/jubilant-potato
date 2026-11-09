@@ -1,5 +1,5 @@
-# Gemma 4 31B FP8-block — RedHatAI 모델 카드 기준 (TP2 → 1)
-# 도구 호출이 일반 텍스트로 나오면 reasoning-parser 줄 삭제 (vllm#39468)
+# Gemma 4 31B FP8-block - based on the RedHatAI model card (TP2 -> 1)
+# If tool calls come back as plain text, delete the reasoning-parser line (vllm#39468)
 served-model-name: gemma-4-31b-it-fp8
 max-model-len: 131072
 gpu-memory-utilization: 0.92

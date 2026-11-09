@@ -1,4 +1,4 @@
-# Qwen3.6-35B-A3B FP8 (MoE) — 레시피의 RTX PRO 6000 설정 + 모델 카드의 코딩용 샘플링
+# Qwen3.6-35B-A3B FP8 (MoE) - RTX PRO 6000 settings from the recipe + coding sampling from the model card
 served-model-name: qwen3.6-35b-a3b-fp8
 max-model-len: 262144
 kv-cache-dtype: fp8
@@ -11,5 +11,5 @@ reasoning-parser: qwen3
 enable-auto-tool-choice: true
 tool-call-parser: qwen3_coder
 limit-mm-per-prompt: '{"image": 4, "video": 0}'
-speculative-config: '{"method": "mtp", "num_speculative_tokens": 4, "moe_backend": "flashinfer_cutlass"}'   # 기동 실패 시 이 줄 삭제
+speculative-config: '{"method": "mtp", "num_speculative_tokens": 4, "moe_backend": "flashinfer_cutlass"}'   # delete this line if startup fails
 override-generation-config: '{"temperature": 0.6, "top_p": 0.95, "top_k": 20, "presence_penalty": 0.0}'

@@ -15,7 +15,7 @@ class T(unittest.TestCase):
         c = Cart(discount_percent=10)
         c.add(50, 2)
         c.add(100)
-        self.assertEqual(c.total(), 198.0)  # 200 → 할인 180 → 세금 198
+        self.assertEqual(c.total(), 198.0)  # 200 -> discount 180 -> tax 198
 
     def test_no_discount(self):
         c = Cart()

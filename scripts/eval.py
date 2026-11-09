@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""코딩 과제 평가: 실행 중인 모델이 도구로 과제를 풀고, 테스트 통과 여부로 채점한다.
+"""Coding task eval: the running model solves tasks with tools and is graded by whether the tests pass.
 
-과제 폴더 (evals/tasks/<이름>/)
-  task.md   지시문
-  files/    시작 코드 (모델이 작업할 폴더로 복사됨)
-  tests/    test_*.py (채점용, 테스트 실행 때마다 새로 덮어써서 모델이 고칠 수 없음)
+Task folder (evals/tasks/<name>/)
+  task.md   instructions
+  files/    starting code (copied into the model's work folder)
+  tests/    test_*.py (for grading; recopied on every test run so the model cannot change them)
 
-모델이 쓰는 도구: list_files, read_file, write_file, run_tests
-결과: 과제별 통과·시간·도구 호출 실패 + results/eval/summary.csv에 모델별 한 줄 누적
+Tools the model uses: list_files, read_file, write_file, run_tests
+Output: pass, time and tool-call failures per task + one line per model appended to results/eval/summary.csv
 
-예) ./serve.sh eval
+e.g. ./serve.sh eval
     ./serve.sh eval --tasks evals/tasks --only fix-median,merge-intervals
 """
 import argparse
@@ -25,10 +25,10 @@ import time
 import urllib.request
 
 p = argparse.ArgumentParser()
-p.add_argument("--tasks", default="evals/tasks", help="과제 폴더")
-p.add_argument("--only", default="", help="쉼표로 구분한 과제 이름만 실행")
-p.add_argument("--max-turns", type=int, default=15, help="과제당 최대 모델 호출 수")
-p.add_argument("--out", default="results/eval", help="결과 폴더")
+p.add_argument("--tasks", default="evals/tasks", help="task folder")
+p.add_argument("--only", default="", help="run only these comma-separated task names")
+p.add_argument("--max-turns", type=int, default=15, help="max model calls per task")
+p.add_argument("--out", default="results/eval", help="output folder")
 args = p.parse_args()
 
 URL = os.environ.get("VLLM_URL", "http://127.0.0.1:8000/v1")
@@ -58,13 +58,13 @@ def chat(messages):
 
 def run_tests(task_dir, work):
     for f in glob.glob(os.path.join(task_dir, "tests", "*.py")):
-        shutil.copy(f, work)  # 매번 원본으로 덮어씀
+        shutil.copy(f, work)  # overwrite with the originals every time
     try:
         r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", ".", "-p", "test_*.py"],
                            cwd=work, capture_output=True, text=True, timeout=60)
         return r.returncode == 0, (r.stdout + r.stderr)[-2000:]
     except subprocess.TimeoutExpired:
-        return False, "테스트 시간 초과 (60초)"
+        return False, "tests timed out (60s)"
 
 
 def inside(work, path):
@@ -73,7 +73,7 @@ def inside(work, path):
 
 
 def call_tool(name, raw_args, task_dir, work):
-    """(결과 텍스트, 오류 여부)"""
+    """(result text, is_error)"""
     try:
         a = json.loads(raw_args or "{}")
     except ValueError:
@@ -133,8 +133,8 @@ def solve(task_dir):
 tasks = sorted(d for d in glob.glob(os.path.join(args.tasks, "*")) if os.path.isfile(os.path.join(d, "task.md")))
 if args.only:
     tasks = [t for t in tasks if os.path.basename(t) in args.only.split(",")]
-print("모델 {} | 과제 {}개\n".format(MODEL, len(tasks)))
-print("{:<24} {:>6} {:>7} {:>9} {:>10} {:>8}".format("과제", "결과", "시간(s)", "모델 호출", "도구 호출", "도구 실패"))
+print("model {} | {} tasks\n".format(MODEL, len(tasks)))
+print("{:<24} {:>6} {:>7} {:>9} {:>10} {:>8}".format("task", "result", "time(s)", "turns", "tool calls", "tool err"))
 rows = []
 for t in tasks:
     s = solve(t)
@@ -152,7 +152,7 @@ summary = {
     "tool_errors": sum(r["tool_errors"] for r in rows),
     "tokens": sum(r["tokens"] for r in rows),
 }
-print("\n통과 {}/{} ({}%), 과제당 평균 {}초, 도구 호출 실패 {}회".format(
+print("\npassed {}/{} ({}%), avg {}s per task, {} tool call failures".format(
     passed, n, summary["pass_rate"], summary["avg_seconds"], summary["tool_errors"]))
 
 os.makedirs(args.out, exist_ok=True)
@@ -166,11 +166,11 @@ with open(path, "a", newline="") as f:
         w.writeheader()
     w.writerow(summary)
 
-# 모델별 최근 결과 비교표
+# latest result per model, as a comparison table
 latest = {}
 for r in csv.DictReader(open(path)):
     latest[r["model"]] = r
-print("\n모델 비교 ({})".format(path))
-print("| 모델 | 통과율 | 과제당 시간 | 도구 실패 | 토큰 | 날짜 |\n|---|---|---|---|---|---|")
+print("\nmodel comparison ({})".format(path))
+print("| model | pass rate | time per task | tool errors | tokens | date |\n|---|---|---|---|---|---|")
 for r in sorted(latest.values(), key=lambda r: -float(r["pass_rate"])):
     print("| {model} | {pass_rate}% ({passed}/{tasks}) | {avg_seconds}s | {tool_errors} | {tokens} | {date} |".format(**r))

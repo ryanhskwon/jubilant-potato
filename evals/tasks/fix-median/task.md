@@ -1,1 +1,1 @@
-`stats.py`의 `median()`이 짝수 개 입력에서 틀린 값을 반환합니다. 버그를 고치고 테스트를 통과시키세요.
+`median()` in `stats.py` returns the wrong value for an even number of inputs. Fix the bug and make the tests pass.

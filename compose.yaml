@@ -1,27 +1,27 @@
-# 모델 실행은 ./serve.sh up <모델> 사용 (GPU 1장이라 한 번에 하나)
+# Start models with ./serve.sh up <model> (1 GPU, so one at a time)
 name: jubilant-potato
 
 x-vllm: &vllm
   image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.33.0}
   ipc: host
   ulimits: { memlock: -1, stack: 67108864 }
-  security_opt: [label=disable]            # Rocky SELinux: 모델 폴더 재라벨링 없이 읽기
+  security_opt: [label=disable]            # Rocky SELinux: read model folders without relabeling
   ports: ["${HOST_BIND:-0.0.0.0}:${HOST_PORT:-8000}:8000"]
   volumes:
     - ${MODELS_DIR:-/data/models}:/models:ro
     - ./configs:/configs:ro
-    - ./cache:/root/.cache                 # 컴파일 캐시 → 두 번째 기동부터 빠름
+    - ./cache:/root/.cache                 # compile cache -> faster from the second startup
   environment:
     VLLM_API_KEY: ${VLLM_API_KEY:-}
     HF_HUB_OFFLINE: "1"
-    VLLM_USE_DEEP_GEMM: "0"                # SM120(RTX PRO 6000) 미지원
+    VLLM_USE_DEEP_GEMM: "0"                # not supported on SM120 (RTX PRO 6000)
     VLLM_NO_USAGE_STATS: "1"
   deploy:
     resources:
       reservations:
         devices: [{ driver: nvidia, device_ids: ["${GPU_ID:-0}"], capabilities: [gpu] }]
   networks:
-    default: { aliases: [vllm] }           # Prometheus 수집 주소 (어떤 모델이든 vllm:8000)
+    default: { aliases: [vllm] }           # Prometheus scrape address (vllm:8000 for any model)
   restart: unless-stopped
 
 services:
@@ -50,7 +50,7 @@ services:
     profiles: [qwen3-coder-next-fp8, all]
     command: [--model, /models/Qwen3-Coder-Next-FP8, --config, /configs/qwen3-coder-next-fp8.yaml]
 
-  # 지표 수집: ./serve.sh monitor up
+  # metrics collection: ./serve.sh monitor up
   prometheus:
     image: prom/prometheus:v3.5.0
     profiles: [monitoring]

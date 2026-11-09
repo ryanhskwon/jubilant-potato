@@ -1,4 +1,4 @@
-# Qwen3-Coder-30B-A3B FP8 (MoE) — 텍스트 전용, 사고 없음
+# Qwen3-Coder-30B-A3B FP8 (MoE) - text only, no thinking
 served-model-name: qwen3-coder-30b-a3b
 max-model-len: 262144
 kv-cache-dtype: fp8

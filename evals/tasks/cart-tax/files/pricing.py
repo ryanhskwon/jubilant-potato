@@ -1,3 +1,3 @@
 def apply_discount(amount, percent):
-    """percent(0~100)만큼 할인한 금액."""
+    """Amount after a discount of percent (0~100)."""
     return amount - amount * percent

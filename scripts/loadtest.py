@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""동시 사용자 수를 늘려 가며 응답 속도와 처리량을 측정하고,
-목표(첫 토큰 p95 ≤ --ttft 초, 사용자당 ≥ --tps tok/s)를 지키는 최대 동시 사용자를 찾는다.
+"""Measure latency and throughput while raising the number of concurrent users, and find
+the max concurrent users that meets the target (first-token p95 <= --ttft s, per user >= --tps tok/s).
 
-예) ./serve.sh loadtest --users 1,4,8,16 --input 8000 --output 512 --ttft 3 --tps 20
+e.g. ./serve.sh loadtest --users 1,4,8,16 --input 8000 --output 512 --ttft 3 --tps 20
 """
 import argparse
 import json
@@ -13,13 +13,13 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 p = argparse.ArgumentParser()
-p.add_argument("--users", default="1,2,4,8,16,32", help="동시 사용자 수 단계")
-p.add_argument("--input", type=int, default=4000, help="요청당 입력 토큰 (대략, 75%%는 모든 요청 공통)")
-p.add_argument("--output", type=int, default=256, help="요청당 출력 토큰")
-p.add_argument("--rounds", type=int, default=3, help="단계마다 사용자 1명이 보내는 요청 수")
-p.add_argument("--ttft", type=float, default=5.0, help="목표: 첫 토큰 p95 (초)")
-p.add_argument("--tps", type=float, default=15.0, help="목표: 사용자당 출력 속도 (tok/s)")
-p.add_argument("--csv", default="", help="결과를 CSV로 저장할 경로")
+p.add_argument("--users", default="1,2,4,8,16,32", help="concurrent user steps")
+p.add_argument("--input", type=int, default=4000, help="input tokens per request (approx., 75%% shared by all requests)")
+p.add_argument("--output", type=int, default=256, help="output tokens per request")
+p.add_argument("--rounds", type=int, default=3, help="requests each user sends per step")
+p.add_argument("--ttft", type=float, default=5.0, help="target: first-token p95 (seconds)")
+p.add_argument("--tps", type=float, default=15.0, help="target: output speed per user (tok/s)")
+p.add_argument("--csv", default="", help="path to save results as CSV")
 args = p.parse_args()
 
 URL = os.environ.get("VLLM_URL", "http://127.0.0.1:8000/v1")
@@ -28,12 +28,12 @@ MODEL = json.load(urllib.request.urlopen(urllib.request.Request(URL + "/models",
 
 
 def code(tokens):
-    """약 tokens 토큰 분량의 코드 텍스트 (1토큰 ≈ 3.5자)."""
+    """Code text of about `tokens` tokens (1 token ~ 3.5 chars)."""
     line = "def f_{0}(x):\n    return x * {0} + {1}\n\n"
     return "".join(line.format(i, random.randint(0, 99)) for i in range(int(tokens * 3.5 / 40)))
 
 
-SHARED = code(args.input * 0.75)  # 모든 요청 공통 (시스템 프롬프트·저장소 컨텍스트 역할 → prefix cache 대상)
+SHARED = code(args.input * 0.75)  # shared by all requests (acts as system prompt / repo context -> prefix cache target)
 
 
 def one(_):
@@ -62,10 +62,10 @@ def pct(values, q):
     return s[min(int(len(s) * q / 100), len(s) - 1)] if s else 0.0
 
 
-print("모델 {} | 입력 {} / 출력 {} 토큰 | 목표: 첫 토큰 p95 ≤ {}초, 사용자당 ≥ {} tok/s\n".format(
+print("model {} | input {} / output {} tokens | target: first-token p95 <= {}s, per user >= {} tok/s\n".format(
     MODEL, args.input, args.output, args.ttft, args.tps))
-print("{:>6} {:>12} {:>12} {:>14} {:>14} {:>6}".format("동시", "첫토큰 p50", "첫토큰 p95", "사용자당 tok/s", "전체 tok/s", "목표"))
-one(0)  # 워밍업 (공통 부분을 캐시에 올림)
+print("{:>6} {:>12} {:>12} {:>14} {:>14} {:>6}".format("users", "TTFT p50", "TTFT p95", "tok/s per user", "total tok/s", "target"))
+one(0)  # warm-up (loads the shared part into the cache)
 rows, best = [], None
 for users in [int(x) for x in args.users.split(",")]:
     t0 = time.time()
@@ -82,13 +82,13 @@ for users in [int(x) for x in args.users.split(",")]:
     print("{users:>6} {ttft_p50:>11.2f}s {ttft_p95:>11.2f}s {tps_user:>14.1f} {tps_total:>14.0f} {0:>6}".format(
         "OK" if row["ok"] else "X", **row), flush=True)
     if not row["ok"] and len(rows) > 1 and not rows[-2]["ok"]:
-        break  # 두 단계 연속 목표 미달이면 중단
+        break  # stop after two consecutive steps miss the target
 
 print()
 if best:
-    print("목표를 지키는 최대 동시 사용자: {users}명 (사용자당 {tps_user:.1f} tok/s, 전체 {tps_total:.0f} tok/s)".format(**best))
+    print("max concurrent users meeting the target: {users} ({tps_user:.1f} tok/s per user, {tps_total:.0f} tok/s total)".format(**best))
 else:
-    print("목표를 지킨 단계가 없음 (--ttft, --tps 완화 또는 --input 축소)")
+    print("no step met the target (relax --ttft, --tps or reduce --input)")
 if args.csv:
     with open(args.csv, "w") as f:
         f.write("users,ttft_p50,ttft_p95,tps_user,tps_total,ok\n")

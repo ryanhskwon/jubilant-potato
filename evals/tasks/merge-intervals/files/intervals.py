@@ -1,3 +1,3 @@
 def merge_intervals(intervals):
-    """[(start, end), ...]를 받아 겹치거나 맞닿은 구간을 합친 리스트를 반환."""
+    """Take [(start, end), ...] and return a list with overlapping or touching intervals merged."""
     raise NotImplementedError

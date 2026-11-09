@@ -1,17 +1,19 @@
 #!/usr/bin/env bash
-# vLLM 모델 서빙 (GPU 1장: 한 번에 한 모델)
+# vLLM model serving (1 GPU: one model at a time)
 #
-#   ./serve.sh list              모델 목록
-#   ./serve.sh check             서버·이미지·모델 점검
-#   ./serve.sh up <모델>         모델 실행 (실행 중인 모델은 내림)
-#   ./serve.sh down              종료
-#   ./serve.sh status            상태
-#   ./serve.sh logs              로그
-#   ./serve.sh test              기능 점검
-#   ./serve.sh loadtest [옵션]   동시 사용자·초당 토큰 측정
-#   ./serve.sh eval [옵션]       코딩 과제 평가 (통과율) → results/eval/
-#   ./serve.sh test-all          모든 모델 test + loadtest + eval → results/
-#   ./serve.sh monitor up|down   Grafana 지표 수집
+#   ./serve.sh list              list models (with numbers)
+#   ./serve.sh check             check server, image and models
+#   ./serve.sh key               create VLLM_API_KEY in .env (if empty) and show it
+#   ./serve.sh up <name|number>  start a model, e.g. ./serve.sh up 2
+#   ./serve.sh down              stop
+#   ./serve.sh status            status
+#   ./serve.sh logs              logs
+#   ./serve.sh errors            error / memory / KV cache lines from the logs
+#   ./serve.sh test              feature check
+#   ./serve.sh loadtest [opts]   measure concurrent users and tokens/s
+#   ./serve.sh eval [opts]       coding task eval (pass rate) -> results/eval/
+#   ./serve.sh test-all          test + loadtest + eval, all models -> results/
+#   ./serve.sh monitor up|down   Grafana metrics collection
 set -euo pipefail
 cd "$(dirname "$0")"
 [[ -f .env ]] && { set -a; . ./.env; set +a; }
@@ -21,7 +23,7 @@ MODELS_DIR=${MODELS_DIR:-/data/models}
 export VLLM_URL=http://127.0.0.1:${HOST_PORT:-8000}/v1
 PY=$(command -v python3 || echo /usr/libexec/platform-python)
 
-# 모델 이름 (= compose 서비스, configs/<이름>.yaml)   모델 폴더 (MODELS_DIR 아래)
+# model name (= compose service, configs/<name>.yaml)   model folder (under MODELS_DIR)
 MODELS="
 qwen3.8-27b-fp8          Qwen3.8-27B-FP8
 qwen3.8-27b-nvfp4        Qwen3.8-27B-NVFP4
@@ -32,63 +34,80 @@ qwen3-coder-next-fp8     Qwen3-Coder-Next-FP8
 "
 names()   { awk 'NF {print $1}' <<<"$MODELS"; }
 dir_of()  { awk -v m="$1" '$1 == m {print $2}' <<<"$MODELS"; }
+name_of() { if [[ $1 =~ ^[0-9]+$ ]]; then names | sed -n "${1}p"; else echo "$1"; fi; }
 dc()      { docker compose --profile all "$@"; }
 running() { dc ps --services --status running 2>/dev/null | head -1; }
 
 case ${1:-} in
 list)
+  i=0
   for m in $(names); do
-    [[ -d $MODELS_DIR/$(dir_of "$m") ]] && s=있음 || s=없음
-    printf '%-26s %-34s %s\n' "$m" "$(dir_of "$m")" "$s"
+    i=$((i + 1))
+    [[ -d $MODELS_DIR/$(dir_of "$m") ]] && s=present || s=missing
+    printf '%2d  %-26s %-34s %s\n' "$i" "$m" "$(dir_of "$m")" "$s"
   done ;;
+
+key)
+  [[ -f .env ]] || cp .env.example .env
+  if [[ -z ${VLLM_API_KEY:-} ]]; then
+    VLLM_API_KEY=$(head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    grep -q '^VLLM_API_KEY=' .env || echo 'VLLM_API_KEY=' >> .env
+    sed -i "s/^VLLM_API_KEY=.*/VLLM_API_KEY=$VLLM_API_KEY/" .env
+    echo "new key saved to .env (apply it with ./serve.sh up <model>)"
+  fi
+  echo "VLLM_API_KEY: $(sed 's/..../& /g' <<<"$VLLM_API_KEY")"
+  echo "(spaces are only for reading; type the key without them)" ;;
 
 check)
   echo "[GPU]"
   nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
   drv=$(nvidia-smi --query-gpu=driver_version --format=csv,noheader | head -1)
-  (( ${drv%%.*} >= 580 )) || echo "  경고: 드라이버 $drv — vLLM 0.33(CUDA 13)은 R580 이상 필요"
+  (( ${drv%%.*} >= 580 )) || echo "  WARN: driver $drv - vLLM 0.33 (CUDA 13) needs R580 or newer"
 
-  echo "[모델 폴더]"
+  echo "[model folders]"
   dirs=()
   for m in $(names); do
     d=$MODELS_DIR/$(dir_of "$m")
-    if [[ ! -d $d ]]; then echo "  $m: 없음"; continue; fi
+    if [[ ! -d $d ]]; then echo "  $m: missing"; continue; fi
     if [[ -n $(find "$d" -maxdepth 1 -name '*.safetensors' -size -2k) ]]; then
-      echo "  $m: git-lfs 포인터만 있음 → 폴더에서 git lfs pull"
+      echo "  $m: only git-lfs pointers -> run git lfs pull in the folder"
     else
       echo "  $m: OK ($(du -sh --exclude=.git "$d" | cut -f1))"
       dirs+=("/models/$(dir_of "$m")")
     fi
   done
 
-  echo "[이미지] $IMAGE"
+  echo "[image] $IMAGE"
   docker run --rm --entrypoint python3 --security-opt label=disable \
     -v "$MODELS_DIR":/models:ro -v "$PWD/scripts":/scripts:ro \
     "$IMAGE" /scripts/check_image.py "${dirs[@]}" 2>&1 | grep -E '^ *(OK|FAIL|WARN|\[)' ;;
 
 up)
-  m=${2:?모델 이름을 지정하세요 (./serve.sh list)}
-  d=$(dir_of "$m"); [[ -n $d ]] || { echo "모르는 모델: $m"; exit 1; }
-  [[ -d $MODELS_DIR/$d ]] || { echo "모델 폴더 없음: $MODELS_DIR/$d"; exit 1; }
+  m=$(name_of "${2:?give a model name or number (./serve.sh list)}")
+  d=$(dir_of "$m"); [[ -n $d ]] || { echo "unknown model: $2 (./serve.sh list)"; exit 1; }
+  [[ -d $MODELS_DIR/$d ]] || { echo "model folder not found: $MODELS_DIR/$d"; exit 1; }
   dc rm -sf >/dev/null 2>&1 || true
   docker compose --profile "$m" up -d "$m"
-  echo -n "기동 대기 (첫 실행은 10분 이상 걸릴 수 있음) "
+  echo -n "waiting for startup (first run can take 10+ minutes) "
   until curl -fs -m 5 "${VLLM_URL%/v1}/health" >/dev/null; do
-    if [[ -z $(running) ]]; then echo; echo "기동 실패:"; dc logs --tail 40 "$m"; exit 1; fi
+    if [[ -z $(running) ]]; then echo; echo "startup failed:"; dc logs --tail 40 "$m"; exit 1; fi
     echo -n .; sleep 10
   done
-  echo; echo "준비 완료: $VLLM_URL" ;;
+  echo; echo "ready: $VLLM_URL" ;;
 
 down)
   dc rm -sf ;;
 
 status)
-  echo "실행 중: $(running || true)"
-  curl -fs -m 5 -H "Authorization: Bearer ${VLLM_API_KEY:-}" "$VLLM_URL/models" | "$PY" -c 'import json,sys; print("모델:", [m["id"] for m in json.load(sys.stdin)["data"]])' || echo "API 응답 없음"
+  echo "running: $(running || true)"
+  curl -fs -m 5 -H "Authorization: Bearer ${VLLM_API_KEY:-}" "$VLLM_URL/models" | "$PY" -c 'import json,sys; print("models:", [m["id"] for m in json.load(sys.stdin)["data"]])' || echo "no API response"
   nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader ;;
 
 logs)
   dc logs -f --tail 200 "$(running)" ;;
+
+errors)
+  dc logs | grep -iE "error|memory|KV cache" || echo "no matching lines" ;;
 
 test)
   "$PY" scripts/test.py ;;
@@ -107,19 +126,19 @@ test-all)
     if ./serve.sh up "$m"; then
       { ./serve.sh test; "$PY" scripts/loadtest.py --csv "$out/$m.loadtest.csv"; "$PY" scripts/eval.py; } 2>&1 | tee "$out/$m.txt"
     else
-      echo "기동 실패" > "$out/$m.txt"
+      echo "startup failed" > "$out/$m.txt"
     fi
   done
-  ./serve.sh down; echo "결과: $out/" ;;
+  ./serve.sh down; echo "results: $out/" ;;
 
 monitor)
   if [[ ${2:-up} == down ]]; then
     docker compose --profile monitoring stop
   else
     docker compose --profile monitoring up -d
-    echo "Grafana: http://<서버>:${GRAFANA_PORT:-3000} (admin / GRAFANA_ADMIN_PASSWORD)"
+    echo "Grafana: http://<server>:${GRAFANA_PORT:-3000} (admin / GRAFANA_ADMIN_PASSWORD)"
   fi ;;
 
 *)
-  sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
+  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac

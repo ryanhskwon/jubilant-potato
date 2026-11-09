@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""실행 중인 모델 기능 점검: 텍스트, 도구 호출, 이미지, 스트리밍 속도."""
+"""Feature check for the running model: text, tool calls, images, streaming speed."""
 import base64
 import json
 import os
@@ -38,8 +38,8 @@ def check(name, fn):
 
 
 def text():
-    m = ask("대한민국의 수도는? 한 단어로.")
-    return "서울" in (m.get("content") or ""), repr((m.get("content") or "").strip())
+    m = ask("What is the capital of South Korea? One word.")
+    return "seoul" in (m.get("content") or "").lower(), repr((m.get("content") or "").strip())
 
 
 def tool():
@@ -54,7 +54,7 @@ def image():
     try:
         m = ask([{"type": "text", "text": "What color is this image? One word."}, {"type": "image_url", "image_url": {"url": url}}])
     except urllib.error.HTTPError as e:
-        return e.code == 400, "이미지 미지원 모델 (HTTP 400)"
+        return e.code == 400, "model has no image support (HTTP 400)"
     return "red" in (m.get("content") or "").lower(), repr((m.get("content") or "").strip())
 
 
@@ -69,10 +69,10 @@ def speed():
             if first is None and d.get("choices") and any(d["choices"][0].get("delta", {}).get(k) for k in ("content", "reasoning_content", "reasoning")):
                 first = time.time()
     first = first or time.time()
-    return n > 0, "첫 토큰 {:.2f}초, {:.1f} tok/s".format(first - t0, n / max(time.time() - first, 1e-6))
+    return n > 0, "first token {:.2f}s, {:.1f} tok/s".format(first - t0, n / max(time.time() - first, 1e-6))
 
 
 MODEL = json.load(urllib.request.urlopen(urllib.request.Request(URL + "/models", headers=HEADERS), timeout=10))["data"][0]["id"]
-print("모델:", MODEL)
-results = [check(n, f) for n, f in [("텍스트", text), ("도구 호출", tool), ("이미지", image), ("속도", speed)]]
-print("통과 {}/{}".format(sum(results), len(results)))
+print("model:", MODEL)
+results = [check(n, f) for n, f in [("text", text), ("tool", tool), ("image", image), ("speed", speed)]]
+print("passed {}/{}".format(sum(results), len(results)))
