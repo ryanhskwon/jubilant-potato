@@ -51,21 +51,37 @@ SYSTEM = ("You are a security engineer agent. Find vulnerabilities in the user's
 STOP = threading.Event()
 
 SRC = os.path.dirname(os.__file__)
-FILES = [f for f in glob.glob(os.path.join(SRC, "**", "*.py"), recursive=True) if os.path.getsize(f) > 2000]
-if not FILES:
-    raise SystemExit("no .py files found under " + SRC)
-chars_per_token = 3.5
+SKIP_DIRS = {"encodings", "test", "tests", "idlelib", "lib2to3", "pydoc_data", "site-packages", "dist-packages"}
+CHARS_PER_TOKEN = 3.5
 NATURAL_CAP = 4096
 
 
-def code(tokens):
-    """Real source files concatenated to about `tokens` tokens."""
-    budget = int(tokens * chars_per_token)
+def plain(text):
+    """Ordinary code: codec tables and escape-heavy data files pack 2-3x more tokens per char."""
+    n = max(len(text), 1)
+    return len(text.encode("utf-8")) - len(text) < n / 100 and text.count("\\") < n / 100
+
+
+CORPUS = []
+for path in sorted(glob.glob(os.path.join(SRC, "**", "*.py"), recursive=True)):
+    rel = os.path.relpath(path, SRC)
+    if SKIP_DIRS & set(rel.split(os.sep)[:-1]) or os.path.getsize(path) < 2000:
+        continue
+    with open(path, encoding="utf-8", errors="replace") as f:
+        text = f.read()
+    if plain(text):
+        CORPUS.append((rel, text))
+if not CORPUS:
+    raise SystemExit("no usable .py files found under " + SRC)
+
+
+def code(tokens, rng):
+    """Real source files concatenated to about `tokens` tokens; the same rng seed gives every model the same text."""
+    budget = int(tokens * CHARS_PER_TOKEN)
     parts, size = [], 0
     while size < budget:
-        path = random.choice(FILES)
-        with open(path, encoding="utf-8", errors="replace") as f:
-            part = "### File: {}\n{}".format(os.path.relpath(path, SRC), f.read())[:budget - size]
+        rel, text = rng.choice(CORPUS)
+        part = "### File: {}\n{}".format(rel, text)[:budget - size]
         parts.append(part)
         size += len(part)
     return "\n\n".join(parts)
@@ -99,11 +115,13 @@ def call(messages, max_tokens, fixed=True):
             "tps": (n_out - 1) / (end - first) if n_out > 1 and end > first else 0.0}
 
 
-def user(deadline, results):
-    time.sleep(random.uniform(0, min(10, args.duration / 10)))
+def user(idx, users, deadline, results):
+    rng = random.Random("{}-{}".format(users, idx))
+    time.sleep(rng.uniform(0, min(10, args.duration / 10)))
     while time.time() < deadline and not STOP.is_set():
         messages = [{"role": "system", "content": SYSTEM},
-                    {"role": "user", "content": "Scan this code for security vulnerabilities and fix them.\n\n" + code(args.context)}]
+                    {"role": "user", "content": "Scan this code for security vulnerabilities and fix them.\n\n" +
+                     code(args.context, rng)}]
         for _ in range(args.turns):
             if time.time() >= deadline or STOP.is_set():
                 return
@@ -113,7 +131,7 @@ def user(deadline, results):
                 time.sleep(1)
                 break
             messages.append({"role": "assistant", "content": r["text"] or "(no text)"})
-            messages.append({"role": "user", "content": "Tool result (read_file):\n" + code(args.tool_output)})
+            messages.append({"role": "user", "content": "Tool result (read_file):\n" + code(args.tool_output, rng)})
 
 
 def scrape():
@@ -173,7 +191,7 @@ def step(users):
     sampler.start()
     t0 = time.time()
     with ThreadPoolExecutor(users) as ex:
-        list(ex.map(lambda _: user(t0 + args.duration, results), range(users)))
+        list(ex.map(lambda i: user(i, users, t0 + args.duration, results), range(users)))
     wall = time.time() - t0
     stop.set()
     sampler.join()
@@ -244,13 +262,12 @@ out("session: {} tok code, {} calls x ({} + {} tool tok), {}s/step".format(
 out("target: TTFT p95 <= {:g}s and 95% of calls >= {:g} tok/s (tok/s p5)".format(args.ttft, args.tps))
 out("note: no pause between turns (worst case); MTP speedup depends on the code")
 
-sample_text = code(2000)
+sample_text = code(4000, random.Random("warm-up"))
 warm = call([{"role": "user", "content": sample_text}], 16)
 if warm["err"]:
     raise SystemExit("warm-up failed: " + warm["err"])
-if warm["n_in"]:
-    chars_per_token = len(sample_text) / warm["n_in"]
-out("warm-up ok, {:.1f} chars per token\n".format(chars_per_token))
+out("warm-up ok, {} code files, {:.1f} chars per token with this tokenizer\n".format(
+    len(CORPUS), len(sample_text) / warm["n_in"] if warm["n_in"] else 0))
 
 out("{:>5} {:>8} {:>8} {:>8} {:>8} {:>8} {:>9} {:>5} {:>5} {:>4}".format(
     "users", "TTFT p50", "TTFT p95", "tok/s50", "tok/s p5", "lat p95", "out tok/s", "KV%", "limit", "SLO"))
@@ -289,9 +306,15 @@ for r in rows:
         cell(r["prefill_tps"], "{:.0f}"), cell(r["running_max"], "{:.0f}"), cell(r["waiting_max"], "{:.0f}")))
 out("prefill tok/s = input tokens computed per second (cache hits excluded)")
 out()
-out("tokens per call: {:.0f} in, {:.0f} out (avg, out includes thinking)".format(
-    sum(r["in_tokens_avg"] for r in rows) / len(rows) if rows else 0,
-    sum(r["out_tokens_avg"] for r in rows) / len(rows) if rows else 0))
+in_avg = sum(r["in_tokens_avg"] for r in rows) / len(rows) if rows else 0
+out_avg = sum(r["out_tokens_avg"] for r in rows) / len(rows) if rows else 0
+expected_in = args.context + (args.turns - 1) / 2 * (out_avg + args.tool_output)
+out("tokens per call: {:.0f} in (target ~{:.0f}), {:.0f} out (avg, out includes thinking)".format(
+    in_avg, expected_in, out_avg))
+if rows and abs(in_avg / expected_in - 1) > 0.2:
+    out("WARN: input is {:+.0f}% off the target; this tokenizer packs the same code".format(
+        (in_avg / expected_in - 1) * 100))
+    out("      differently, so this model did more or less work than the others.")
 out("limit: KV = KV cache full, seqs = queue at max-num-seqs,")
 out("       pref = new requests waiting for prefill (max-num-batched-tokens),")
 out("       gpu = slow without a queue")

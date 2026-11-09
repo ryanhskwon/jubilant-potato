@@ -4,7 +4,7 @@ served-model-name: qwen3-coder-next
 max-model-len: 131072
 kv-cache-dtype: fp8
 gpu-memory-utilization: 0.95
-max-num-seqs: 4
+max-num-seqs: 16              # KV was 11% at 4 sessions; drop back to 4 if startup fails
 max-num-batched-tokens: 4096
 enable-prefix-caching: true
 async-scheduling: true
