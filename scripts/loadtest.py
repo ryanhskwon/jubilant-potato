@@ -142,7 +142,7 @@ GAUGES = ("vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_perc", "vllm:num_req
 
 def sample(stop, srv):
     srv["start"] = scrape()
-    while not stop.wait(2):
+    while not stop.wait(1):
         s = scrape()
         if s:
             srv["end"] = s
@@ -155,6 +155,11 @@ def sample(stop, srv):
 def delta(srv, name):
     a, b = srv.get("start", {}), srv.get("end", {})
     return b[name] - a[name] if name in a and name in b else None
+
+
+def hist_avg(srv, name):
+    total, count = delta(srv, name + "_sum"), delta(srv, name + "_count")
+    return total / count if total is not None and count else None
 
 
 def pct(values, q):
@@ -193,12 +198,16 @@ def step(users):
         "kv_max": kv, "waiting_max": srv.get("vllm:num_requests_waiting"),
         "running_max": srv.get("vllm:num_requests_running"),
         "prefix_hit": hits / queries if hits is not None and queries else None, "preemptions": preempt,
+        "prefill_tps": (queries - hits) / wall if hits is not None and queries is not None else None,
+        "queue_avg": hist_avg(srv, "vllm:request_queue_time_seconds"),
+        "prefill_avg": hist_avg(srv, "vllm:request_prefill_time_seconds"),
+        "decode_avg": hist_avg(srv, "vllm:request_decode_time_seconds"),
     }
     row["ok"] = bool(done) and not row["errors"] and row["ttft_p95"] <= args.ttft and row["tps_p5"] >= args.tps
     if (kv is not None and kv >= 90) or (preempt or 0) > 0:
         row["limit"] = "KV"
     elif (row["waiting_max"] or 0) > 0:
-        row["limit"] = "seqs"
+        row["limit"] = "seqs" if (row["running_max"] or 0) < users else "pref"
     else:
         row["limit"] = "-" if row["ok"] else "gpu"
     return row
@@ -265,11 +274,26 @@ with open(csv_path, "w", newline="") as f:
     w.writeheader()
     w.writerows(rows)
 
+def cell(v, fmt):
+    return "-" if v is None else fmt.format(v)
+
+
+out()
+out("SERVER BREAKDOWN (per call averages from vLLM /metrics; TTFT ~ queue + prefill)")
+out("{:>5} {:>8} {:>8} {:>8} {:>9} {:>13} {:>7} {:>7}".format(
+    "users", "queue", "prefill", "decode", "cache hit", "prefill tok/s", "running", "waiting"))
+for r in rows:
+    out("{:>5} {:>8} {:>8} {:>8} {:>9} {:>13} {:>7} {:>7}".format(
+        r["users"], cell(r["queue_avg"], "{:.2f}s"), cell(r["prefill_avg"], "{:.2f}s"),
+        cell(r["decode_avg"], "{:.1f}s"), cell(r["prefix_hit"] and r["prefix_hit"] * 100, "{:.0f}%"),
+        cell(r["prefill_tps"], "{:.0f}"), cell(r["running_max"], "{:.0f}"), cell(r["waiting_max"], "{:.0f}")))
+out("prefill tok/s = input tokens computed per second (cache hits excluded)")
 out()
 out("tokens per call: {:.0f} in, {:.0f} out (avg, out includes thinking)".format(
     sum(r["in_tokens_avg"] for r in rows) / len(rows) if rows else 0,
     sum(r["out_tokens_avg"] for r in rows) / len(rows) if rows else 0))
 out("limit: KV = KV cache full, seqs = queue at max-num-seqs,")
+out("       pref = new requests waiting for prefill (max-num-batched-tokens),")
 out("       gpu = slow without a queue")
 out()
 best = max((r for r in rows if r["ok"]), key=lambda r: r["users"], default=None)
@@ -299,8 +323,12 @@ if best:
         out("  suggested max-num-seqs  : {} (more requests wait instead of slowing everyone)".format(best["users"]))
 first_fail = next((r for r in rows if not r["ok"]), None)
 if first_fail and first_fail["limit"] == "seqs":
-    out("  WARN: the queue came from max-num-seqs {}, not the GPU. Raise it in".format(max_seqs))
-    out("        configs/<model>.yaml, ./serve.sh up again, and rerun.")
+    out("  WARN: the server never ran more than {:.0f} calls at once (config says {}).".format(
+        first_fail["running_max"] or 0, max_seqs))
+    out("        Raise max-num-seqs in the model yaml or ./serve.sh up again, rerun.")
+if first_fail and first_fail["limit"] == "pref":
+    out("  NOTE: new sessions waited for prefill. To shorten TTFT, try")
+    out("        max-num-batched-tokens: 16384 in the model yaml (tok/s p5 may drop).")
 out()
 out("saved: " + report_path)
 out("       " + csv_path)
