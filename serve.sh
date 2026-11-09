@@ -38,6 +38,17 @@ dir_of()  { awk -v m="$1" '$1 == m {print $2}' <<<"$MODELS"; }
 name_of() { if [[ $1 =~ ^[0-9]+$ ]]; then names | sed -n "${1}p"; else echo "$1"; fi; }
 dc()      { docker compose --profile all "$@"; }
 running() { dc ps --services --status running 2>/dev/null | head -1; }
+# vLLM reads its config only at startup, so a config edited later is not in effect yet.
+fresh() {
+  local m started
+  m=$(running); [[ -n $m ]] || return 0
+  started=$(docker inspect -f '{{.State.StartedAt}}' "$(dc ps -q "$m")" 2>/dev/null) || return 0
+  if (( $(stat -c %Y "configs/$m.yaml") > $(date -d "$started" +%s) )); then
+    echo "configs/$m.yaml changed after $m started, so the change is not in effect."
+    echo "Run ./serve.sh up $m first."
+    exit 1
+  fi
+}
 
 case ${1:-} in
 list)
@@ -111,13 +122,13 @@ errors)
   dc logs | grep -iE "error|memory|KV cache" || echo "no matching lines" ;;
 
 test)
-  "$PY" scripts/test.py ;;
+  fresh; "$PY" scripts/test.py ;;
 
 loadtest)
-  shift; "$PY" scripts/loadtest.py "$@" ;;
+  fresh; shift; "$PY" scripts/loadtest.py "$@" ;;
 
 eval)
-  shift; "$PY" scripts/eval.py "$@" ;;
+  fresh; shift; "$PY" scripts/eval.py "$@" ;;
 
 test-all)
   out=results/$(date +%Y%m%d-%H%M); mkdir -p "$out"
