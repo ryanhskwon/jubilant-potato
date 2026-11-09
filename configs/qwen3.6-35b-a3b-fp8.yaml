@@ -11,5 +11,6 @@ reasoning-parser: qwen3
 enable-auto-tool-choice: true
 tool-call-parser: qwen3_coder
 limit-mm-per-prompt: '{"image": 4, "video": 0}'
-speculative-config: '{"method": "mtp", "num_speculative_tokens": 4, "moe_backend": "flashinfer_cutlass"}'   # delete this line if startup fails
+# MTP off: suspected cause of a startup runtime error on vLLM 0.33 (2026-11-09)
+# speculative-config: '{"method": "mtp", "num_speculative_tokens": 4, "moe_backend": "flashinfer_cutlass"}'
 override-generation-config: '{"temperature": 0.6, "top_p": 0.95, "top_k": 20, "presence_penalty": 0.0}'
