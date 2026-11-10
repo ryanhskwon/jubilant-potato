@@ -12,7 +12,8 @@
 #   ./serve.sh test              feature check
 #   ./serve.sh loadtest [opts]   capacity: TTFT, tok/s, latency, how many users
 #   ./serve.sh eval [opts]       quality eval (--tasks evals/vuln) -> results/
-#   ./serve.sh test-all          test + loadtest + eval, all models -> results/
+#   ./serve.sh test-all [n..]    test + vuln eval per model (all, or numbers)
+#   ./serve.sh report            pick the best model from results/
 #   ./serve.sh monitor up|down   Grafana metrics collection
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -22,6 +23,7 @@ IMAGE=${VLLM_IMAGE:-vllm/vllm-openai:v0.33.0}
 MODELS_DIR=${MODELS_DIR:-/data/models}
 export VLLM_URL=http://127.0.0.1:${HOST_PORT:-8000}/v1
 PY=$(command -v python3 || echo /usr/libexec/platform-python)
+VULN_TASKS=${VULN_TASKS-sql-injection,command-injection,path-traversal,xss,hardcoded-secret,clean-user-lookup}
 
 # model name (= compose service, configs/<name>.yaml)   model folder (under MODELS_DIR)
 MODELS="
@@ -131,17 +133,24 @@ eval)
   fresh; shift; "$PY" scripts/eval.py "$@" ;;
 
 test-all)
+  shift
+  if (( $# )); then sel=$(for a in "$@"; do name_of "$a"; done); else sel=$(names); fi
+  only=(); [[ -z $VULN_TASKS || $VULN_TASKS == all ]] || only=(--only "$VULN_TASKS")
   out=results/$(date +%Y%m%d-%H%M); mkdir -p "$out"
-  for m in $(names); do
-    [[ -d $MODELS_DIR/$(dir_of "$m") ]] || continue
+  for m in $sel; do
+    [[ -d $MODELS_DIR/$(dir_of "$m") ]] || { echo "== $m: no model folder, skipped"; continue; }
     echo "== $m"
     if ./serve.sh up "$m"; then
-      { ./serve.sh test; "$PY" scripts/loadtest.py --csv "$out/$m.loadtest.csv"; "$PY" scripts/eval.py; } 2>&1 | tee "$out/$m.txt"
+      { ./serve.sh test; "$PY" scripts/eval.py --tasks evals/vuln "${only[@]}"; } 2>&1 | tee "$out/$m.txt"
     else
       echo "startup failed" > "$out/$m.txt"
     fi
   done
-  ./serve.sh down; echo "results: $out/" ;;
+  ./serve.sh down; echo "results: $out/"
+  "$PY" scripts/report.py ;;
+
+report)
+  "$PY" scripts/report.py ;;
 
 monitor)
   if [[ ${2:-up} == down ]]; then
@@ -152,5 +161,5 @@ monitor)
   fi ;;
 
 *)
-  sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//' ;;
+  sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//' ;;
 esac
