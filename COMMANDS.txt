@@ -31,10 +31,12 @@ git pull
 ./serve.sh loadtest --context 30000      # bigger code per session
 less results/loadtest/<model>-<date>.txt # report (also a .csv)
 
-[6] Model eval (coding task pass rate)
-./serve.sh eval
-./serve.sh eval --only fix-median,cart-tax
-cat results/eval/summary.csv
+[6] Model eval (quality)
+./serve.sh eval --tasks evals/vuln       # vulnerability find + fix, 21 tasks
+./serve.sh eval --tasks evals/vuln --only sql-injection,xss
+less results/eval/summary-vuln.csv
+./serve.sh eval                          # general coding tasks (4)
+python3 scripts/check_tasks.py evals/vuln   # check the tasks, no model needed
 
 [7] All models at once (test + loadtest + eval, takes a long time)
 ./serve.sh test-all

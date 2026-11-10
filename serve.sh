@@ -3,7 +3,7 @@
 #
 #   ./serve.sh list              list models (with numbers)
 #   ./serve.sh check             check server, image and models
-#   ./serve.sh key               create VLLM_API_KEY in .env (if empty) and show it
+#   ./serve.sh key               create VLLM_API_KEY in .env if empty, show it
 #   ./serve.sh up <name|number>  start a model, e.g. ./serve.sh up 2
 #   ./serve.sh down              stop
 #   ./serve.sh status            status
@@ -11,7 +11,7 @@
 #   ./serve.sh errors            error / memory / KV cache lines from the logs
 #   ./serve.sh test              feature check
 #   ./serve.sh loadtest [opts]   capacity: TTFT, tok/s, latency, how many users
-#   ./serve.sh eval [opts]       coding task eval (pass rate) -> results/eval/
+#   ./serve.sh eval [opts]       quality eval (--tasks evals/vuln) -> results/
 #   ./serve.sh test-all          test + loadtest + eval, all models -> results/
 #   ./serve.sh monitor up|down   Grafana metrics collection
 set -euo pipefail

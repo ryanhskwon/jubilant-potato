@@ -82,6 +82,30 @@ cp .env.example .env      # 외부에 열면 VLLM_API_KEY 설정
   - `files/`: 시작 코드
   - `tests/test_*.py`: 채점용 unittest
 - **선택 기준:** 품질 기준(예: 통과율 70%)을 넘는 모델 중에서, `loadtest`의 최대 동시 사용자가 가장 많은 모델을 고릅니다.
+
+### 취약점 점검·수정 평가 (`evals/vuln/`)
+
+```bash
+./serve.sh eval --tasks evals/vuln                        # 21개 과제
+./serve.sh eval --tasks evals/vuln --only sql-injection,xss
+python3 scripts/check_tasks.py evals/vuln                 # 모델 없이 과제 채점 검증
+```
+
+취약한 Python 코드 18개와 취약점이 없는 정상 코드 3개입니다. 모든 과제에 같은 지시문("취약점을 찾아 고치고 FINDINGS.json에 CWE를 적어라")을 주므로, 모델은 어떤 취약점인지, 취약점이 있기는 한지 모르고 시작합니다.
+
+| 과제 | CWE |
+|---|---|
+| sql-injection, command-injection, eval-injection, unsafe-pickle | 89, 78, 95, 502 |
+| path-traversal, zip-slip, ssrf, open-redirect | 22, 22, 918, 601 |
+| xss, log-injection, mass-assignment, idor | 79, 117, 915, 639 |
+| weak-password-hash, hardcoded-secret, insecure-random, timing-compare | 916, 798, 330, 208 |
+| redos, temp-file | 1333, 377 |
+| clean-sales-report, clean-user-lookup, clean-version | 없음 (오탐 측정) |
+
+- **채점:** `tests/test_func_*.py`는 기능이 그대로인지, `tests/test_sec_*.py`는 공격 입력이 막히는지 봅니다. 모델의 run_tests 도구는 기능 테스트만 실행하고, 공격 테스트는 채점 때만 실행합니다.
+- **지표:** 탐지율(보고한 CWE가 정답 목록과 맞음), 수정률(공격 테스트 통과), 회귀(기능 테스트 실패), 오탐(정상 코드에 취약점 보고). 통과 = 수정 + 기능 유지, 정상 코드는 기능 유지 + 보고 없음.
+- **결과:** `results/eval/summary-vuln.csv`에 모델별 한 줄이 쌓이고 비교표가 출력됩니다.
+- **과제 구조:** `task.md`, `files/`(취약한 코드), `tests/`, `expected.json`(정답 CWE 목록, 정상 코드는 `[]`), `solution/`(모범 수정본, 검증용이며 모델에게 보이지 않음).
 - **주의:** 모델이 작성한 코드가 서버의 임시 폴더에서 실행됩니다 (테스트당 60초 제한).
 
 ## 문제 해결
