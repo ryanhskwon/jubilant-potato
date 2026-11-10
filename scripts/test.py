@@ -74,5 +74,10 @@ def speed():
 
 MODEL = json.load(urllib.request.urlopen(urllib.request.Request(URL + "/models", headers=HEADERS), timeout=10))["data"][0]["id"]
 print("model:", MODEL)
-results = [check(n, f) for n, f in [("text", text), ("tool", tool), ("image", image), ("speed", speed)]]
+CHECKS = [("text", text), ("tool", tool), ("image", image), ("speed", speed)]
+results = [check(n, f) for n, f in CHECKS]
 print("passed {}/{}".format(sum(results), len(results)))
+os.makedirs("results/test", exist_ok=True)
+with open(os.path.join("results", "test", MODEL + ".json"), "w") as f:
+    json.dump({"model": MODEL, "date": time.strftime("%Y-%m-%d %H:%M"),
+               "checks": {n: r for (n, _), r in zip(CHECKS, results)}}, f, indent=1)

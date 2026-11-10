@@ -221,6 +221,7 @@ def step(users):
         "prefill_avg": hist_avg(srv, "vllm:request_prefill_time_seconds"),
         "decode_avg": hist_avg(srv, "vllm:request_decode_time_seconds"),
     }
+    row["session_s"] = row["lat_mean"] * args.turns
     row["ok"] = bool(done) and not row["errors"] and row["ttft_p95"] <= args.ttft and row["tps_p5"] >= args.tps
     if (kv is not None and kv >= 90) or (preempt or 0) > 0:
         row["limit"] = "KV"
