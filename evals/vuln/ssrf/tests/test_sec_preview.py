@@ -25,7 +25,8 @@ class T(unittest.TestCase):
     def test_internal_addresses_not_fetched(self):
         for url in ["http://127.0.0.1:8080/admin", "http://localhost/admin",
                     "http://169.254.169.254/latest/meta-data/", "http://10.0.0.5/", "http://[::1]/",
-                    "file:///etc/passwd"]:
+                    "file:///etc/passwd", "http://0.0.0.0/", "http://127.1/", "http://2130706433/",
+                    "http://192.168.1.1/", "http://172.16.0.1/", "http://[::ffff:127.0.0.1]/"]:
             opener = FakeOpener()
             try:
                 fetch_preview(url, opener=opener)

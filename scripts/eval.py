@@ -109,8 +109,21 @@ def call_tool(name, raw_args, task_dir, work, test_pattern):
     return "error: unknown tool " + name, True
 
 
+MAX_CWES = 3  # listing many CWE ids on one task is guessing, not detection
+
+
+def cwe_ids(value):
+    out = set()
+    for v in value if isinstance(value, list) else [value]:
+        if isinstance(v, int) and not isinstance(v, bool):
+            out.add("CWE-%d" % v)
+        elif isinstance(v, str):
+            out |= {"CWE-%d" % int(n) for n in re.findall(r"(?:CWE[-_ ]?)?(\d+)", v, re.I)}
+    return out
+
+
 def reported(work):
-    """(number of findings, set of CWE ids) from FINDINGS.json, or None if missing or unreadable."""
+    """(findings that name a CWE, set of CWE ids) from FINDINGS.json, or None if missing or unreadable."""
     try:
         data = json.load(open(os.path.join(work, "FINDINGS.json")))
     except (OSError, ValueError):
@@ -118,8 +131,8 @@ def reported(work):
     items = data.get("findings") if isinstance(data, dict) else data
     if not isinstance(items, list):
         return None
-    cwes = {"CWE-" + n for n in re.findall(r"CWE[-_ ]?(\d+)", json.dumps(items), re.I)}
-    return len(items), cwes
+    ids = [cwe_ids(item.get("cwe")) for item in items if isinstance(item, dict)]
+    return sum(1 for i in ids if i), set().union(*ids)
 
 
 def grade(task_dir, work, stat):
@@ -133,12 +146,12 @@ def grade(task_dir, work, stat):
     n_found, cwes = found or (0, set())
     stat["func"] = run_tests(task_dir, work, FUNC_TESTS)[0]
     if expected:
-        stat["found"] = bool(cwes & expected)
-        stat["fixed"] = run_tests(task_dir, work, SEC_TESTS)[0]
-        stat["passed"] = stat["func"] and stat["fixed"]
+        stat["found"] = bool(cwes & expected) and len(cwes) <= MAX_CWES
+        stat["fixed"] = stat["func"] and run_tests(task_dir, work, SEC_TESTS)[0]
+        stat["passed"] = stat["fixed"] and stat["found"]
     else:
         stat["false_alarm"] = n_found > 0
-        stat["passed"] = stat["func"] and not stat["false_alarm"]
+        stat["passed"] = stat["func"] and stat["report"] and not stat["false_alarm"]
 
 
 def solve(task_dir):
@@ -228,7 +241,12 @@ suffix = "" if task_set == "tasks" else "-" + task_set
 os.makedirs(args.out, exist_ok=True)
 with open(os.path.join(args.out, MODEL + suffix + ".json"), "w") as f:
     json.dump({"summary": summary, "tasks": rows}, f, ensure_ascii=False, indent=1)
+summary["task_ids"] = ",".join(sorted(r["task"] for r in rows))
 path = os.path.join(args.out, "summary" + suffix + ".csv")
+if os.path.exists(path):
+    with open(path, newline="") as f:
+        if next(csv.reader(f), []) != list(summary):
+            os.replace(path, path + ".old")  # written by an older eval.py with other columns
 new = not os.path.exists(path)
 with open(path, "a", newline="") as f:
     w = csv.DictWriter(f, fieldnames=list(summary))
@@ -236,11 +254,11 @@ with open(path, "a", newline="") as f:
         w.writeheader()
     w.writerow(summary)
 
-# latest result per model, as a comparison table
 latest = {}
 for r in csv.DictReader(open(path)):
-    latest[r["model"]] = r
-print("\nmodel comparison ({})".format(path))
+    if r["task_ids"] == summary["task_ids"]:
+        latest[r["model"]] = r
+print("\nmodel comparison, runs on the same {} tasks ({})".format(n, path))
 if security:
     print("| model | pass | detect | fix | broke | false alarm | time/task | date |\n|---|---|---|---|---|---|---|---|")
     line = ("| {model} | {pass_rate}% | {detect_rate}% | {fix_rate}% | {regressions} | {false_alarms}/{clean} "

@@ -17,6 +17,11 @@ class T(unittest.TestCase):
         finally:
             os.remove(path)
 
+    def test_no_mktemp(self):
+        import report
+        with open(report.__file__) as f:
+            self.assertNotIn("mktemp(", f.read())
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -45,9 +45,13 @@ def read_tool(model):
 
 
 def read_quality():
+    """Latest row per model among runs on the same task list as the newest run, so a
+    6-task quick run is never compared with a 21-task run."""
+    rows = [r for r in rows_of(os.path.join(ROOT, "eval", "summary-vuln.csv")) if r.get("model")]
+    task_ids = rows[-1].get("task_ids") if rows else None
     latest = {}
-    for r in rows_of(os.path.join(ROOT, "eval", "summary-vuln.csv")):
-        if r.get("model"):
+    for r in rows:
+        if r.get("task_ids") == task_ids:
             latest[r["model"]] = r
     keys = ("pass_rate", "passed", "tasks", "detect_rate", "fix_rate", "regressions", "false_alarms",
             "clean", "vulnerable")
@@ -76,8 +80,8 @@ def read_capacity(model):
     return None
 
 
-def discover():
-    names = set(read_quality())
+def discover(quality):
+    names = set(quality)
     for p in glob.glob(os.path.join(ROOT, "test", "*.json")):
         names.add(os.path.basename(p)[:-len(".json")])
     for p in glob.glob(os.path.join(ROOT, "loadtest", "*.csv")):
@@ -159,7 +163,7 @@ def write_csv(path, ordered, ranked):
 def main():
     quality = read_quality()
     records = [{"model": m, "tool_ok": read_tool(m), "quality": quality.get(m), "capacity": read_capacity(m)}
-               for m in sorted(discover())]
+               for m in sorted(discover(quality))]
     if not records:
         print("no results found under " + ROOT)
         return

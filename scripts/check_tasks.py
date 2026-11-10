@@ -4,6 +4,8 @@
 For each task in the folder:
   starting code:              tests/test_func_*.py pass, tests/test_sec_*.py fail
   starting code + solution/:  every test passes
+  alternatives/good-*/:       other correct fixes, every test passes (tests are not too strict)
+  alternatives/bad-*/:        wrong or partial fixes, some test fails (tests are not too lax)
 Clean tasks (expected.json with no CWE) only need their func tests to pass on the starting code.
 Tasks without expected.json (general coding tasks) are skipped.
 
@@ -18,11 +20,11 @@ import sys
 import tempfile
 
 
-def run(task, pattern, with_solution):
+def run(task, pattern, overlay=None):
     with tempfile.TemporaryDirectory() as work:
         shutil.copytree(os.path.join(task, "files"), work, dirs_exist_ok=True)
-        if with_solution:
-            shutil.copytree(os.path.join(task, "solution"), work, dirs_exist_ok=True)
+        if overlay:
+            shutil.copytree(overlay, work, dirs_exist_ok=True)
         for f in glob.glob(os.path.join(task, "tests", pattern)):
             shutil.copy(f, work)
         try:
@@ -41,18 +43,25 @@ def check(task):
     cwe = json.load(open(os.path.join(task, "expected.json")))["cwe"]
     if not glob.glob(os.path.join(task, "tests", "test_func_*.py")):
         problems.append("no func tests")
-    elif not run(task, "test_func_*.py", False):
+    elif not run(task, "test_func_*.py"):
         problems.append("func tests fail on the starting code")
     if not cwe:
         return problems
     if not glob.glob(os.path.join(task, "tests", "test_sec_*.py")):
         problems.append("no sec tests")
-    elif run(task, "test_sec_*.py", False):
+    elif run(task, "test_sec_*.py"):
         problems.append("sec tests pass on the vulnerable code")
     if not os.path.isdir(os.path.join(task, "solution")):
         problems.append("no solution/")
-    elif not run(task, "test_*.py", True):
+    elif not run(task, "test_*.py", os.path.join(task, "solution")):
         problems.append("tests fail on the solution")
+    for alt in sorted(glob.glob(os.path.join(task, "alternatives", "*"))):
+        label = os.path.basename(alt)
+        passed = run(task, "test_*.py", alt)
+        if label.startswith("good-") and not passed:
+            problems.append("too strict: " + label + " fails")
+        if label.startswith("bad-") and passed:
+            problems.append("too lax: " + label + " passes")
     return problems
 
 

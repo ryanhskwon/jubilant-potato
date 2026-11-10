@@ -10,8 +10,7 @@ class T(unittest.TestCase):
         os.environ.pop("API_TOKEN", None)
 
     def test_secret_not_in_source(self):
-        import client
-        with open(client.__file__) as f:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "client.py")) as f:
             self.assertNotIn(LEAKED, f.read())
 
     def test_token_from_environment(self):
