@@ -38,9 +38,24 @@ less results/eval/summary-vuln.csv
 ./serve.sh eval                          # general coding tasks (4)
 python3 scripts/check_tasks.py evals/vuln   # check the tasks, no model needed
 
-[7] All models at once (test + loadtest + eval, takes a long time)
-./serve.sh test-all
-ls results/
+[7] Pick a model: quick visit flow
+git pull
+python3 scripts/check_tasks.py evals/vuln   # expect: 21 of 21 tasks ok
+./serve.sh test-all 1 3 4                # chosen models (numbers or names)
+./serve.sh report                        # table + "recommended: <model>"
+#   Time (estimate, not measured): about 15-20 min per model, mostly model
+#   startup plus the 6-task eval. No loadtest runs here.
+#   test-all with no numbers = every model whose folder exists.
+#   Per model: up, test, eval of 6 vuln tasks (VULN_TASKS), then down+report.
+#   Slow path, all 21 tasks:  VULN_TASKS=all ./serve.sh test-all 1 3 4
+#   Capacity: report reads the newest results/loadtest/<model>-*.csv. Make
+#   one per model with ./serve.sh loadtest (see [5]); without it the model
+#   is listed as "missing" and still ranked by quality.
+#   Decision rule: dropped if the tool-call check failed, or if loadtest
+#   shows fewer than 4 users within the speed target. The rest are ranked
+#   by eval pass rate; rates 1 task apart tie, then more users wins, then
+#   shorter session. Pass% with few tasks is noisy: read the count (4/6).
+ls results/                              # also results/report.csv
 
 [8] Continuous metrics collection (Grafana http://<server>:3000)
 ./serve.sh monitor up

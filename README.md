@@ -21,7 +21,8 @@ cp .env.example .env      # 외부에 열면 VLLM_API_KEY 설정
 ./serve.sh loadtest               # 동시 사용자 수별 응답 속도와 초당 토큰
 ./serve.sh eval                   # 코딩 과제 평가 (통과율)
 ./serve.sh status | logs | down
-./serve.sh test-all               # 모든 모델 test + loadtest + eval → results/
+./serve.sh test-all 1 3 4         # 고른 모델 test + 취약점 eval 일부 → results/, 끝나면 report
+./serve.sh report                 # results/ 를 읽어 가장 알맞은 모델 추천
 ./serve.sh monitor up             # Grafana(:3000)로 상시 지표 수집
 ```
 
@@ -82,6 +83,24 @@ cp .env.example .env      # 외부에 열면 VLLM_API_KEY 설정
   - `files/`: 시작 코드
   - `tests/test_*.py`: 채점용 unittest
 - **선택 기준:** 품질 기준(예: 통과율 70%)을 넘는 모델 중에서, `loadtest`의 최대 동시 사용자가 가장 많은 모델을 고릅니다.
+
+### 모델 고르기: 현장 방문 흐름 (`test-all`, `report`)
+
+```bash
+git pull
+python3 scripts/check_tasks.py evals/vuln   # 21 of 21 tasks ok 가 나와야 함
+./serve.sh test-all 1 3 4                   # 번호나 이름으로 모델 선택 (생략하면 폴더가 있는 모든 모델)
+./serve.sh report                           # 표 + "recommended: <모델>"
+VULN_TASKS=all ./serve.sh test-all 1 3 4    # 느린 경로: 21개 과제 전체
+```
+
+- **모델마다 하는 일:** 기동, `test`(텍스트·도구·이미지·속도), 취약점 eval 6개 과제(`VULN_TASKS`로 바꿈, `all` 또는 빈 값이면 21개 전체). `loadtest`는 돌리지 않습니다. 끝나면 모델을 내리고 `report`를 실행합니다.
+- **시간(추정치, 실측 아님):** 모델당 약 15~20분. 대부분 모델 기동과 6개 과제 평가 시간입니다. 21개 전체와 첫 기동(캐시 없음)은 더 걸립니다.
+- **입력:** `results/test/<모델>.json`(도구 호출 통과 여부), `results/eval/summary-vuln.csv`(모델별 최신 줄), `results/loadtest/<모델>-*.csv`(가장 최근 파일). 동시 사용자 수는 이전에 `./serve.sh loadtest`로 잰 결과를 그대로 씁니다. 없는 모델은 `-`로 표시하고 `missing:`에 올리며, 품질만으로 순위를 매깁니다.
+- **탈락 조건:** 도구 호출 점검 실패, 또는 loadtest가 있고 목표 속도를 지키는 최대 동시 사용자가 4명 미만(개발자 15명의 예상 동시 접속). 탈락 사유는 `excluded:`에 나옵니다.
+- **순위:** 취약점 eval 통과율 내림차순. 통과율 차이가 1개 과제 이내(취약 과제 수가 18이면 약 5.6점)이면 동률로 보고 최대 동시 사용자, 그다음 세션 1건 시간(`session_s`, 짧은 쪽)으로 정합니다. 실행마다 결과가 흔들리기 때문입니다.
+- **주의:** 표의 `pass` 칸은 통과율과 과제 수(예: `3/5`)를 함께 보여 줍니다. 6개 과제만 돌린 결과는 작은 표본이라 차이가 작으면 해석에 주의하세요.
+- **저장:** `results/report.csv`.
 
 ### 취약점 점검·수정 평가 (`evals/vuln/`)
 
