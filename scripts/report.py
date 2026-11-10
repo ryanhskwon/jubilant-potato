@@ -99,7 +99,7 @@ def gate_failures(r):
 
 
 def task_points(r):
-    return 100.0 / r["quality"]["vulnerable"] if r["quality"]["vulnerable"] else 0.0
+    return 100.0 / r["quality"]["tasks"] if r["quality"]["tasks"] else 0.0
 
 
 def tied(r, top):
