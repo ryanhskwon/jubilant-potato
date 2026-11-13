@@ -136,6 +136,8 @@ python3 scripts/check_tasks.py evals/vuln                 # 모델 없이 과제
 ```bash
 ./serve.sh eval --tasks evals/long --max-turns 60 --time-limit 900   # 15분 제한
 ./serve.sh eval --tasks evals/long --time-limit 900 --no-thinking   # 생각 끄고 비교 (결과 이름 <모델>-nothink)
+./serve.sh eval --tasks evals/long --time-limit 900 --reasoning-effort low   # 생각 단계 low/medium/xhigh (결과 이름 <모델>-effort-low)
+./serve.sh eval --tasks evals/long --time-limit 900 --keep-thinking   # 이전 턴의 생각을 대화에 남김 (Qwen3.8 권장, 결과 이름 <모델>-keep)
 python3 scripts/check_tasks.py evals/long
 ```
 

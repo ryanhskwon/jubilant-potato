@@ -46,12 +46,21 @@ p.add_argument("--time-limit", type=int, default=0,
 p.add_argument("--out", default="results/eval", help="output folder")
 p.add_argument("--no-thinking", action="store_true",
                help="send enable_thinking=false (Qwen3, Gemma 4 chat templates); results saved as <model>-nothink")
+p.add_argument("--reasoning-effort", choices=("low", "medium", "xhigh"),
+               help="thinking depth (Qwen3.8: xhigh is its default); results saved as <model>-effort-<level>")
+p.add_argument("--keep-thinking", action="store_true",
+               help="send earlier turns' thinking back as reasoning_content, as the Qwen3.8 card advises for "
+                    "agents; results saved as <model>-keep")
 args = p.parse_args()
+if args.no_thinking and args.reasoning_effort:
+    p.error("--no-thinking and --reasoning-effort exclude each other")
 
 URL = os.environ.get("VLLM_URL", "http://127.0.0.1:8000/v1")
 HEADERS = {"Content-Type": "application/json", "Authorization": "Bearer " + os.environ.get("VLLM_API_KEY", "")}
 MODEL = json.load(urllib.request.urlopen(urllib.request.Request(URL + "/models", headers=HEADERS), timeout=10))["data"][0]["id"]
-LABEL = MODEL + "-nothink" if args.no_thinking else MODEL
+LABEL = (MODEL + ("-nothink" if args.no_thinking else "")
+         + ("-effort-" + args.reasoning_effort if args.reasoning_effort else "")
+         + ("-keep" if args.keep_thinking else ""))
 
 SYSTEM = ("You are a coding agent working in a small repository. Use the tools to inspect files, edit them, "
           "and run the tests. Keep working until the task is done, then reply with a one-line summary.")
@@ -73,6 +82,8 @@ def chat(messages, timeout=900):
     body = {"model": MODEL, "messages": messages, "tools": TOOLS, "max_tokens": 16384}  # same as the team coding agent
     if args.no_thinking:
         body["chat_template_kwargs"] = {"enable_thinking": False}
+    if args.reasoning_effort:
+        body["reasoning_effort"] = args.reasoning_effort
     req = urllib.request.Request(URL + "/chat/completions", json.dumps(body).encode(), HEADERS)
     return json.load(urllib.request.urlopen(req, timeout=timeout))
 
@@ -217,8 +228,13 @@ def solve(task_dir):
             stat["out_tokens"] += d.get("usage", {}).get("completion_tokens", 0)  # thinking included
             m = d["choices"][0]["message"]
             calls = m.get("tool_calls") or []
-            messages.append({"role": "assistant", "content": m.get("content") or "", "tool_calls": calls} if calls
-                            else {"role": "assistant", "content": m.get("content") or ""})
+            turn = {"role": "assistant", "content": m.get("content") or ""}
+            if calls:
+                turn["tool_calls"] = calls
+            thinking = m.get("reasoning_content") or m.get("reasoning")
+            if args.keep_thinking and thinking:
+                turn["reasoning_content"] = thinking
+            messages.append(turn)
             if not calls:
                 break
             for c in calls:

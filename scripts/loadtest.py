@@ -34,6 +34,9 @@ p.add_argument("--turns", type=int, default=8, help="model calls per session")
 p.add_argument("--output", type=int, default=512, help="output tokens per call")
 p.add_argument("--natural", action="store_true",
                help="let the model stop on its own (up to 4096 tokens per call) to see real wait times")
+p.add_argument("--no-thinking", action="store_true", help="send enable_thinking=false (use with --natural)")
+p.add_argument("--reasoning-effort", choices=("low", "medium", "xhigh"),
+               help="thinking depth for Qwen3.8 (use with --natural)")
 p.add_argument("--tool-output", type=int, default=1000, help="code tokens added per turn as a tool result")
 p.add_argument("--ttft", type=float, default=5.0, help="target: TTFT p95 (seconds)")
 p.add_argument("--tps", type=float, default=20.0, help="target: 95%% of calls at least this many output tok/s")
@@ -41,6 +44,8 @@ p.add_argument("--batch-sessions", type=int, default=0, help="sessions reserved 
 p.add_argument("--csv", default="", help="CSV path (default: next to the .txt report)")
 p.add_argument("--out", default="results/loadtest", help="report folder")
 args = p.parse_args()
+if args.no_thinking and args.reasoning_effort:
+    p.error("--no-thinking and --reasoning-effort exclude each other")
 
 URL = os.environ.get("VLLM_URL", "http://127.0.0.1:8000/v1")
 BASE = URL[:-3] if URL.endswith("/v1") else URL
@@ -93,6 +98,10 @@ def call(messages, max_tokens, fixed=True):
             "max_tokens": max_tokens}
     if fixed:
         body.update(min_tokens=max_tokens, ignore_eos=True)
+    if args.no_thinking:
+        body["chat_template_kwargs"] = {"enable_thinking": False}
+    if args.reasoning_effort:
+        body["reasoning_effort"] = args.reasoning_effort
     t0, first, n_out, n_in, text = time.time(), None, 0, 0, []
     try:
         req = urllib.request.Request(URL + "/chat/completions", json.dumps(body).encode(), HEADERS)
@@ -250,7 +259,8 @@ def step(users):
         "decode_avg": hist_avg(srv, "vllm:request_decode_time_seconds"),
     }
     row.update(gpu_stats(srv.get("gpu")))
-    row.update(context=args.context, turns=args.turns, output="natural" if args.natural else args.output)
+    row.update(context=args.context, turns=args.turns, output="natural" if args.natural else args.output,
+               thinking="off" if args.no_thinking else (args.reasoning_effort or "default"))
     row["session_s"] = row["lat_mean"] * args.turns
     row["ok"] = bool(done) and not row["errors"] and row["ttft_p95"] <= args.ttft and row["tps_p5"] >= args.tps
     if (kv is not None and kv >= 90) or (preempt or 0) > 0:
@@ -290,6 +300,8 @@ out("model {} | max-num-seqs {}".format(MODEL, max_seqs if max_seqs is not None 
 out("session: {} tok code, {} calls x ({} + {} tool tok), {}s/step".format(
     args.context, args.turns, "out<={}".format(NATURAL_CAP) if args.natural else "{} out".format(args.output),
     args.tool_output, args.duration))
+if args.no_thinking or args.reasoning_effort:
+    out("thinking: " + ("off" if args.no_thinking else "reasoning_effort " + args.reasoning_effort))
 out("target: TTFT p95 <= {:g}s and 95% of calls >= {:g} tok/s (tok/s p5)".format(args.ttft, args.tps))
 out("note: no pause between turns (worst case); MTP speedup depends on the code")
 

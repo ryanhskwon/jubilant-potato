@@ -14,3 +14,4 @@ tool-call-parser: qwen3_coder
 limit-mm-per-prompt: '{"image": 4, "video": 0}'
 speculative-config: '{"method": "mtp", "num_speculative_tokens": 2}'   # 3 -> 2 (2026-11-13): fewer wasted drafts with many users; comment out to turn MTP off
 default-chat-template-kwargs: '{"enable_thinking": false}'   # delete this line if startup fails (option missing in this vLLM)
+override-generation-config: '{"temperature": 0.7, "top_p": 0.8, "top_k": 20, "min_p": 0.0, "presence_penalty": 1.5}'   # model card values for non-thinking mode
