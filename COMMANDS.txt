@@ -73,7 +73,7 @@ vi configs/qwen3.8-27b-nvfp4.yaml
 #   1) halve max-model-len           262144 -> 131072
 #   2) gpu-memory-utilization        0.92 -> 0.95
 #   3) delete the speculative-config line
-#   4) halve max-num-seqs            64 -> 32
+#   4) halve max-num-seqs            16 -> 8
 #   5) add enforce-eager: true
 ./serve.sh up qwen3.8-27b-nvfp4
 

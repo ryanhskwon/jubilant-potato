@@ -26,7 +26,7 @@ import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
 p = argparse.ArgumentParser()
-p.add_argument("--users", default="1,2,4,8,12,16,24,32,48,64", help="concurrent sessions per step")
+p.add_argument("--users", default="1,2,4,6,8,12,16", help="concurrent sessions per step")
 p.add_argument("--duration", type=int, default=180, help="seconds per step")
 p.add_argument("--context", type=int, default=20000, help="code tokens at the start of a session")
 p.add_argument("--turns", type=int, default=8, help="model calls per session")

@@ -4,7 +4,7 @@ served-model-name: gemma-4-31b-it-fp8
 max-model-len: 131072
 kv-cache-dtype: fp8             # same as the other models; delete this line if startup fails
 gpu-memory-utilization: 0.92
-max-num-seqs: 64
+max-num-seqs: 16
 max-num-batched-tokens: 8192
 enable-prefix-caching: true
 async-scheduling: true

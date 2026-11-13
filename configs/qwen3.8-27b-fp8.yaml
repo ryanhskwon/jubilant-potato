@@ -3,7 +3,7 @@ served-model-name: qwen3.8-27b-fp8
 max-model-len: 262144
 kv-cache-dtype: fp8
 gpu-memory-utilization: 0.92
-max-num-seqs: 64                # set to the loadtest "suggested max-num-seqs" for production
+max-num-seqs: 16                # loadtest held the targets up to 15 sessions; more requests wait in the queue
 max-num-batched-tokens: 16384   # 8192 -> 16384 raised loadtest capacity from 6 to 8 sessions (2026-11-09)
 enable-prefix-caching: true
 async-scheduling: true
