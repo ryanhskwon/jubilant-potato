@@ -72,10 +72,25 @@ def loadtest_files(model):
             if STAMP.match(os.path.basename(p)) and STAMP.match(os.path.basename(p)).group(1) == model]
 
 
+STANDARD = {"context": "20000", "turns": "8", "output": "512"}  # loadtest defaults; older csvs lack these columns
+
+
+def standard(rows):
+    for r in rows:
+        if any(r.get(k) not in (None, "", v) for k, v in STANDARD.items()):
+            return False
+        out = num(r.get("out_tokens_avg"))
+        if not r.get("output") and out is not None and abs(out - 512) > 10:
+            return False  # a --natural run from before the output column existed
+    return True
+
+
 def read_capacity(model):
+    """Newest loadtest csv run with the default workload; --natural or other --context runs are skipped so
+    every model is compared on the same work."""
     for path in sorted(loadtest_files(model), key=os.path.getmtime, reverse=True):
         rows = [r for r in rows_of(path) if num(r.get("users")) is not None]
-        if not rows:
+        if not rows or not standard(rows):
             continue
         good = [r for r in rows if r.get("ok") == "True"]
         top = max(good, key=lambda r: num(r["users"]), default=None)

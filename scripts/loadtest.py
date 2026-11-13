@@ -250,6 +250,7 @@ def step(users):
         "decode_avg": hist_avg(srv, "vllm:request_decode_time_seconds"),
     }
     row.update(gpu_stats(srv.get("gpu")))
+    row.update(context=args.context, turns=args.turns, output="natural" if args.natural else args.output)
     row["session_s"] = row["lat_mean"] * args.turns
     row["ok"] = bool(done) and not row["errors"] and row["ttft_p95"] <= args.ttft and row["tps_p5"] >= args.tps
     if (kv is not None and kv >= 90) or (preempt or 0) > 0:
@@ -350,9 +351,20 @@ out()
 in_avg = sum(r["in_tokens_avg"] for r in rows) / len(rows) if rows else 0
 out_avg = sum(r["out_tokens_avg"] for r in rows) / len(rows) if rows else 0
 expected_in = args.context + (args.turns - 1) / 2 * (out_avg + args.tool_output)
-out("tokens per call: {:.0f} in (target ~{:.0f}), {:.0f} out (avg, out includes thinking)".format(
-    in_avg, expected_in, out_avg))
-if rows and abs(in_avg / expected_in - 1) > 0.2:
+if args.natural:
+    # thinking is not sent back, and slow calls mean few turns per step, so there is no fixed target
+    out("tokens per call: {:.0f} in, {:.0f} out (avg, out includes thinking; cap {})".format(
+        in_avg, out_avg, NATURAL_CAP))
+    if out_avg > NATURAL_CAP * 0.9:
+        out("NOTE: most calls hit the {} token cap; real answers are longer than this".format(NATURAL_CAP))
+    lat = sum(r["lat_mean"] for r in rows) / len(rows) if rows else 0
+    if lat > args.duration / 6:
+        out("NOTE: a call takes about {:.0f}s here, so each user makes only a few calls per".format(lat))
+        out("      step; p95 rests on few samples. Use a longer --duration for firm numbers.")
+else:
+    out("tokens per call: {:.0f} in (target ~{:.0f}), {:.0f} out (avg, out includes thinking)".format(
+        in_avg, expected_in, out_avg))
+if rows and not args.natural and abs(in_avg / expected_in - 1) > 0.2:
     out("WARN: input is {:+.0f}% off the target; this tokenizer packs the same code".format(
         (in_avg / expected_in - 1) * 100))
     out("      differently, so this model did more or less work than the others.")
