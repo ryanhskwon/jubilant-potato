@@ -95,7 +95,7 @@ check)
   echo "[image] $IMAGE"
   docker run --rm --entrypoint python3 --security-opt label=disable \
     -v "$MODELS_DIR":/models:ro -v "$PWD/scripts":/scripts:ro \
-    "$IMAGE" /scripts/check_image.py "${dirs[@]}" 2>&1 | grep -E '^ *(OK|FAIL|WARN|\[)' ;;
+    "$IMAGE" /scripts/check_image.py "${dirs[@]}" 2>&1 | grep -E '^ *(OK|FAIL|WARN|context|\[)' ;;
 
 up)
   m=$(name_of "${2:?give a model name or number (./serve.sh list)}")

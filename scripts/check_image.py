@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Runs inside the vLLM image (serve.sh check): checks the transformers version range and that each model loads."""
 import importlib.metadata as md
+import json
 import os
 import sys
 import warnings
@@ -21,6 +22,25 @@ else:
 
 from transformers import AutoConfig, AutoProcessor, AutoTokenizer  # noqa: E402
 
+
+def native_context(cfg):
+    """max_position_embeddings, on the config or (multimodal models) on its text_config."""
+    for c in (cfg, getattr(cfg, "text_config", None)):
+        n = getattr(c, "max_position_embeddings", None)
+        if n:
+            return n
+    return None
+
+
+def default_output(path):
+    """max_new_tokens or max_length from generation_config.json; vLLM may use it as the default."""
+    try:
+        gen = json.load(open(os.path.join(path, "generation_config.json")))
+    except (OSError, ValueError):
+        return None
+    return gen.get("max_new_tokens") or gen.get("max_length")
+
+
 for path in sys.argv[1:]:
     name = os.path.basename(path)
     try:
@@ -28,5 +48,7 @@ for path in sys.argv[1:]:
         vision = os.path.exists(os.path.join(path, "preprocessor_config.json"))
         (AutoProcessor if vision else AutoTokenizer).from_pretrained(path)
         print("  OK   {}: {}{}".format(name, cfg.model_type, " (image input)" if vision else ""))
+        print("       context {} (model max), default output {}".format(
+            native_context(cfg) or "?", default_output(path) or "not set"))
     except Exception as e:  # noqa: BLE001
         print("  FAIL {}: {}".format(name, str(e).splitlines()[0][:160]))
