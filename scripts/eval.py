@@ -191,7 +191,7 @@ def solve(task_dir):
     visible = FUNC_TESTS if glob.glob(os.path.join(task_dir, "tests", FUNC_TESTS)) else ALL_TESTS
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": open(os.path.join(task_dir, "task.md")).read()}]
-    stat = {"turns": 0, "tool_calls": 0, "tool_errors": 0, "tokens": 0, "error": "",
+    stat = {"turns": 0, "tool_calls": 0, "tool_errors": 0, "tokens": 0, "out_tokens": 0, "error": "",
             "func": None, "found": None, "fixed": None, "false_alarm": None, "report": None, "score": None}
     t0 = time.time()
     try:
@@ -209,6 +209,7 @@ def solve(task_dir):
                 break
             stat["turns"] += 1
             stat["tokens"] += d.get("usage", {}).get("total_tokens", 0)
+            stat["out_tokens"] += d.get("usage", {}).get("completion_tokens", 0)  # thinking included
             m = d["choices"][0]["message"]
             calls = m.get("tool_calls") or []
             messages.append({"role": "assistant", "content": m.get("content") or "", "tool_calls": calls} if calls
@@ -253,6 +254,9 @@ for t in tasks:
         s["task"][:22], "PASS" if s["passed"] else "FAIL", s["seconds"], s["turns"], s["tool_errors"],
         found, mark(s["fixed"]), mark(s["func"]), "-" if s["score"] is None else "{:.0f}".format(s["score"]),
         s["error"]), flush=True)
+    if s["score"] is not None:
+        print("    output {} tokens in {:.0f}s ({:.0f} tok/s overall)".format(
+            s["out_tokens"], s["seconds"], s["out_tokens"] / max(s["seconds"], 1e-6)))
     for name in s.get("failed_tests") or []:
         print("    failed: " + name)
 
