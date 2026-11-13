@@ -35,6 +35,7 @@ gemma-4-26b-a4b-it       gemma-4-26B-A4B-it
 qwen3-coder-30b-a3b-fp8  Qwen3-Coder-30B-A3B-Instruct-FP8
 qwen3-coder-next-fp8     Qwen3-Coder-Next-FP8
 gemma-4-31b-it-fp8       gemma-4-31B-it-FP8-block
+qwen3.8-27b-fp8-nothink  Qwen3.8-27B-FP8
 "
 names()   { awk 'NF {print $1}' <<<"$MODELS"; }
 dir_of()  { awk -v m="$1" '$1 == m {print $2}' <<<"$MODELS"; }

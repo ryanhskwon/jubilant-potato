@@ -1,0 +1,16 @@
+# Qwen3.8-27B FP8 with thinking off by default (same weights as qwen3.8-27b-fp8). A client can still turn it on per request.
+served-model-name: qwen3.8-27b-fp8-nothink
+max-model-len: 262144
+kv-cache-dtype: fp8
+gpu-memory-utilization: 0.92
+max-num-seqs: 16                # loadtest held the targets up to 15 sessions; more requests wait in the queue
+max-num-batched-tokens: 16384   # 8192 -> 16384 raised loadtest capacity from 6 to 8 sessions (2026-11-09)
+attention-backend: FLASHINFER   # added 2026-11-13 for SM120 + fp8 KV; delete this line if startup fails
+enable-prefix-caching: true
+async-scheduling: true
+reasoning-parser: qwen3
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+limit-mm-per-prompt: '{"image": 4, "video": 0}'
+speculative-config: '{"method": "mtp", "num_speculative_tokens": 2}'   # 3 -> 2 (2026-11-13): fewer wasted drafts with many users; comment out to turn MTP off
+default-chat-template-kwargs: '{"enable_thinking": false}'   # delete this line if startup fails (option missing in this vLLM)

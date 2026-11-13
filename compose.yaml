@@ -53,6 +53,10 @@ services:
     <<: *vllm
     profiles: [qwen3-coder-next-fp8, all]
     command: [--model, /models/Qwen3-Coder-Next-FP8, --config, /configs/qwen3-coder-next-fp8.yaml]
+  qwen3.8-27b-fp8-nothink:              # same weights as qwen3.8-27b-fp8, thinking off by default
+    <<: *vllm
+    profiles: [qwen3.8-27b-fp8-nothink, all]
+    command: [--model, /models/Qwen3.8-27B-FP8, --config, /configs/qwen3.8-27b-fp8-nothink.yaml]
 
   # metrics collection: ./serve.sh monitor up
   prometheus:
