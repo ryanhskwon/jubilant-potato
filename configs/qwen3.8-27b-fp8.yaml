@@ -11,4 +11,4 @@ reasoning-parser: qwen3
 enable-auto-tool-choice: true
 tool-call-parser: qwen3_coder
 limit-mm-per-prompt: '{"image": 4, "video": 0}'
-speculative-config: '{"method": "mtp", "num_speculative_tokens": 3}'   # delete this line if startup fails
+speculative-config: '{"method": "mtp", "num_speculative_tokens": 2}'   # 3 -> 2 (2026-11-13): fewer wasted drafts with many users; comment out to turn MTP off
