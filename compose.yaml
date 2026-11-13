@@ -1,5 +1,5 @@
 # Start models with ./serve.sh up <model> (1 GPU, so one at a time)
-name: jubilant-potato
+name: va
 
 x-vllm: &vllm
   image: ${VLLM_IMAGE:-vllm/vllm-openai:v0.33.0}
