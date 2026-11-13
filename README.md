@@ -133,6 +133,7 @@ python3 scripts/check_tasks.py evals/vuln                 # 모델 없이 과제
 
 ```bash
 ./serve.sh eval --tasks evals/long --max-turns 60 --time-limit 900   # 15분 제한
+./serve.sh eval --tasks evals/long --time-limit 900 --no-thinking   # 생각 끄고 비교 (결과 이름 <모델>-nothink)
 python3 scripts/check_tasks.py evals/long
 ```
 

@@ -44,11 +44,14 @@ p.add_argument("--max-turns", type=int, default=15, help="max model calls per ta
 p.add_argument("--time-limit", type=int, default=0,
                help="seconds per task (0 = none); then the work so far is graded")
 p.add_argument("--out", default="results/eval", help="output folder")
+p.add_argument("--no-thinking", action="store_true",
+               help="send enable_thinking=false (Qwen3, Gemma 4 chat templates); results saved as <model>-nothink")
 args = p.parse_args()
 
 URL = os.environ.get("VLLM_URL", "http://127.0.0.1:8000/v1")
 HEADERS = {"Content-Type": "application/json", "Authorization": "Bearer " + os.environ.get("VLLM_API_KEY", "")}
 MODEL = json.load(urllib.request.urlopen(urllib.request.Request(URL + "/models", headers=HEADERS), timeout=10))["data"][0]["id"]
+LABEL = MODEL + "-nothink" if args.no_thinking else MODEL
 
 SYSTEM = ("You are a coding agent working in a small repository. Use the tools to inspect files, edit them, "
           "and run the tests. Keep working until the task is done, then reply with a one-line summary.")
@@ -68,6 +71,8 @@ ALL_TESTS, FUNC_TESTS, SEC_TESTS = "test_*.py", "test_func_*.py", "test_sec_*.py
 
 def chat(messages, timeout=900):
     body = {"model": MODEL, "messages": messages, "tools": TOOLS, "max_tokens": 16384}  # same as the team coding agent
+    if args.no_thinking:
+        body["chat_template_kwargs"] = {"enable_thinking": False}
     req = urllib.request.Request(URL + "/chat/completions", json.dumps(body).encode(), HEADERS)
     return json.load(urllib.request.urlopen(req, timeout=timeout))
 
@@ -227,7 +232,7 @@ def solve(task_dir):
     grade(task_dir, work, stat)
     stat["seconds"] = time.time() - t0
     if stat["score"] is not None:  # keep the model's code to see what it missed
-        keep = os.path.join(args.out, "work", MODEL + "-" + os.path.basename(task_dir))
+        keep = os.path.join(args.out, "work", LABEL + "-" + os.path.basename(task_dir))
         shutil.rmtree(keep, ignore_errors=True)
         shutil.copytree(work, keep, ignore=shutil.ignore_patterns("test_*.py", "__pycache__"))
     shutil.rmtree(work, ignore_errors=True)
@@ -241,7 +246,7 @@ def mark(value, yes="yes", no="no"):
 tasks = sorted(d for d in glob.glob(os.path.join(args.tasks, "*")) if os.path.isfile(os.path.join(d, "task.md")))
 if args.only:
     tasks = [t for t in tasks if os.path.basename(t) in args.only.split(",")]
-print("model {} | {} tasks in {}\n".format(MODEL, len(tasks), args.tasks))
+print("model {} | {} tasks in {}\n".format(LABEL, len(tasks), args.tasks))
 print("{:<22} {:>6} {:>7} {:>5} {:>5} {:>6} {:>5} {:>5} {:>5}".format(
     "task", "result", "time(s)", "turns", "t.err", "found", "fixed", "func", "score"))
 rows = []
@@ -263,7 +268,7 @@ for t in tasks:
 n = len(rows)
 passed = sum(r["passed"] for r in rows)
 summary = {
-    "date": time.strftime("%Y-%m-%d %H:%M"), "model": MODEL, "tasks": n, "passed": passed,
+    "date": time.strftime("%Y-%m-%d %H:%M"), "model": LABEL, "tasks": n, "passed": passed,
     "pass_rate": round(passed / n * 100, 1) if n else 0,
     "avg_seconds": round(sum(r["seconds"] for r in rows) / n, 1) if n else 0,
     "tool_errors": sum(r["tool_errors"] for r in rows),
@@ -296,7 +301,7 @@ if security:
 task_set = os.path.basename(os.path.normpath(args.tasks))
 suffix = "" if task_set == "tasks" else "-" + task_set
 os.makedirs(args.out, exist_ok=True)
-with open(os.path.join(args.out, MODEL + suffix + ".json"), "w") as f:
+with open(os.path.join(args.out, LABEL + suffix + ".json"), "w") as f:
     json.dump({"summary": summary, "tasks": rows}, f, ensure_ascii=False, indent=1)
 summary["task_ids"] = ",".join(sorted(r["task"] for r in rows))
 path = os.path.join(args.out, "summary" + suffix + ".csv")
