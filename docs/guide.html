@@ -233,7 +233,7 @@ nvidia-smi                                              <span class="c"># GPU를
   <div class="table-wrap"><table>
     <thead><tr><th>로그 문구</th><th>원인</th><th>조치 (위에서부터 시도)</th></tr></thead>
     <tbody>
-      <tr><td><code>KV cache is needed, which is larger than the available KV cache memory</code></td><td>최대 컨텍스트 1개를 담을 KV 캐시 공간이 부족</td><td>① <code>max-model-len</code> 절반으로 (131072 → 65536)<br>② <code>gpu-memory-utilization: 0.95</code><br>③ <code>kv-cache-dtype: fp8</code> 확인 (Gemma 제외)</td></tr>
+      <tr><td><code>KV cache is needed, which is larger than the available KV cache memory</code></td><td>최대 컨텍스트 1개를 담을 KV 캐시 공간이 부족</td><td>① <code>max-model-len</code> 절반으로 (262144 → 131072)<br>② <code>gpu-memory-utilization: 0.95</code><br>③ <code>kv-cache-dtype: fp8</code> 확인 (Gemma 제외)</td></tr>
       <tr><td><code>CUDA out of memory</code> — 가중치 로드 중 (<code>Loading weights</code> 직후)</td><td>모델이 GPU에 안 들어감</td><td>① <code>nvidia-smi</code>로 다른 프로세스 확인 → <code>./serve.sh down</code>, 남은 컨테이너 정리<br>② <code>gpu-memory-utilization: 0.95</code><br>③ 더 작은 양자화(NVFP4) 모델 사용. Coder-Next(약 80GB)가 여기에 해당할 수 있음</td></tr>
       <tr><td><code>CUDA out of memory</code> — <code>Capturing CUDA graphs</code> 또는 compile 중</td><td>CUDA graph·활성화 메모리 부족</td><td>① <code>speculative-config</code> 줄 삭제 (MTP가 메모리를 더 씀)<br>② <code>max-num-seqs</code> 절반으로 (8 → 4)<br>③ <code>enforce-eager: true</code> 추가 (디코딩이 다소 느려짐)</td></tr>
       <tr><td><code>No available memory for the cache blocks</code></td><td>가중치를 올리고 나니 KV 캐시 공간이 없음</td><td>① <code>gpu-memory-utilization: 0.95</code><br>② 위의 CUDA graph 조치 적용</td></tr>

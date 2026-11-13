@@ -1,6 +1,6 @@
 # Qwen3.8-27B FP8 - thinking, tools, images. Source: vLLM recipe Qwen3.8-27B
 served-model-name: qwen3.8-27b-fp8
-max-model-len: 131072
+max-model-len: 262144
 kv-cache-dtype: fp8
 gpu-memory-utilization: 0.92
 max-num-seqs: 16                # loadtest held the targets up to 15 sessions; more requests wait in the queue
