@@ -1,6 +1,6 @@
 # Qwen3.8-27B NVFP4 (NVIDIA) - RTX PRO 6000 settings from the recipe
 served-model-name: qwen3.8-27b-nvfp4
-max-model-len: 262144
+max-model-len: 131072
 kv-cache-dtype: fp8
 gpu-memory-utilization: 0.92
 max-num-seqs: 16
