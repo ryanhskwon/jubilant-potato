@@ -78,7 +78,7 @@ def run_tests(task_dir, work, pattern=ALL_TESTS):
     try:
         r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", ".", "-p", pattern],
                            cwd=work, capture_output=True, text=True, timeout=60)
-        return r.returncode == 0, (r.stdout + r.stderr)[-2000:]
+        return r.returncode == 0, r.stdout + r.stderr
     except subprocess.TimeoutExpired:
         return False, "tests timed out (60s)"
 
@@ -98,7 +98,7 @@ def call_tool(name, raw_args, task_dir, work, test_pattern):
         return "\n".join(sorted(os.path.relpath(os.path.join(d, f), work) for d, _, fs in os.walk(work) for f in fs)), False
     if name == "run_tests":
         ok, out = run_tests(task_dir, work, test_pattern)
-        return ("PASSED\n" if ok else "FAILED\n") + out, False
+        return ("PASSED\n" if ok else "FAILED\n") + out[-2000:], False
     if name in ("read_file", "write_file"):
         path = inside(work, a.get("path", ""))
         if not path:
@@ -142,11 +142,13 @@ def reported(work):
 
 
 def tests_passed(task_dir, work):
-    """(all passed, number of passing tests); a test module that fails to import counts none."""
+    """(all passed, number of passing tests, failing test names); a test module that fails to
+    import counts none."""
     ok, out = run_tests(task_dir, work)
     ran = re.search(r"Ran (\d+) test", out)
     failed = sum(int(n) for n in re.findall(r"(?:failures|errors)=(\d+)", out))
-    return ok, int(ran.group(1)) - failed if ran else 0
+    names = ["{}.{}".format(c, t) for t, c in re.findall(r"^(?:FAIL|ERROR): (\S+) \(([\w.]+)\)", out, re.M)]
+    return ok, int(ran.group(1)) - failed if ran else 0, names
 
 
 def defined_tests(task_dir):
@@ -164,7 +166,7 @@ def baseline(task_dir):
 def grade(task_dir, work, stat):
     expected_path = os.path.join(task_dir, "expected.json")
     if not os.path.isfile(expected_path):
-        ok, passing = tests_passed(task_dir, work)
+        ok, passing, stat["failed_tests"] = tests_passed(task_dir, work)
         total, base = defined_tests(task_dir), baseline(task_dir)
         stat["passed"] = ok
         stat["score"] = 100.0 if ok else round(100.0 * max(0, passing - base) / max(1, total - base), 1)
@@ -223,6 +225,10 @@ def solve(task_dir):
         stat["error"] = str(e)[:150]
     grade(task_dir, work, stat)
     stat["seconds"] = time.time() - t0
+    if stat["score"] is not None:  # keep the model's code to see what it missed
+        keep = os.path.join(args.out, "work", MODEL + "-" + os.path.basename(task_dir))
+        shutil.rmtree(keep, ignore_errors=True)
+        shutil.copytree(work, keep, ignore=shutil.ignore_patterns("test_*.py", "__pycache__"))
     shutil.rmtree(work, ignore_errors=True)
     return stat
 
@@ -247,6 +253,8 @@ for t in tasks:
         s["task"][:22], "PASS" if s["passed"] else "FAIL", s["seconds"], s["turns"], s["tool_errors"],
         found, mark(s["fixed"]), mark(s["func"]), "-" if s["score"] is None else "{:.0f}".format(s["score"]),
         s["error"]), flush=True)
+    for name in s.get("failed_tests") or []:
+        print("    failed: " + name)
 
 n = len(rows)
 passed = sum(r["passed"] for r in rows)
