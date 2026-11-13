@@ -12,7 +12,7 @@
 #   ./serve.sh test              feature check
 #   ./serve.sh loadtest [opts]   capacity: TTFT, tok/s, latency, how many users
 #   ./serve.sh eval [opts]       quality eval (--tasks evals/vuln) -> results/
-#   ./serve.sh test-all [n..]    test + vuln eval per model (all, or numbers)
+#   ./serve.sh test-all [n..]    test + vuln + long coding eval per model
 #   ./serve.sh report            pick the best model from results/
 #   ./serve.sh monitor up|down   Grafana metrics collection
 set -euo pipefail
@@ -24,6 +24,7 @@ MODELS_DIR=${MODELS_DIR:-/data/models}
 export VLLM_URL=http://127.0.0.1:${HOST_PORT:-8000}/v1
 PY=$(command -v python3 || echo /usr/libexec/platform-python)
 VULN_TASKS=${VULN_TASKS-sql-injection,command-injection,path-traversal,xss,hardcoded-secret,clean-user-lookup}
+LONG=${LONG-1}            # LONG=0 ./serve.sh test-all ... skips the long coding task
 
 # model name (= compose service, configs/<name>.yaml)   model folder (under MODELS_DIR)
 MODELS="
@@ -141,7 +142,8 @@ test-all)
     [[ -d $MODELS_DIR/$(dir_of "$m") ]] || { echo "== $m: no model folder, skipped"; continue; }
     echo "== $m"
     if ./serve.sh up "$m"; then
-      { ./serve.sh test; "$PY" scripts/eval.py --tasks evals/vuln "${only[@]}"; } 2>&1 | tee "$out/$m.txt"
+      { ./serve.sh test; "$PY" scripts/eval.py --tasks evals/vuln "${only[@]}"
+        [[ $LONG == 0 ]] || "$PY" scripts/eval.py --tasks evals/long --max-turns 40; } 2>&1 | tee "$out/$m.txt"
     else
       echo "startup failed" > "$out/$m.txt"
     fi

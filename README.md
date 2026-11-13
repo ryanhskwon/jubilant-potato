@@ -21,7 +21,7 @@ cp .env.example .env      # 외부에 열면 VLLM_API_KEY 설정
 ./serve.sh loadtest               # 동시 사용자 수별 응답 속도와 초당 토큰
 ./serve.sh eval                   # 코딩 과제 평가 (통과율)
 ./serve.sh status | logs | down
-./serve.sh test-all 1 3 4         # 고른 모델 test + 취약점 eval 일부 → results/, 끝나면 report
+./serve.sh test-all 1 3 4         # 고른 모델 test + 취약점 eval 일부 + 긴 코딩 과제 → results/, 끝나면 report
 ./serve.sh report                 # results/ 를 읽어 가장 알맞은 모델 추천
 ./serve.sh monitor up             # Grafana(:3000)로 상시 지표 수집
 ```
@@ -88,18 +88,20 @@ cp .env.example .env      # 외부에 열면 VLLM_API_KEY 설정
 
 ```bash
 git pull
-python3 scripts/check_tasks.py evals/vuln   # 21 of 21 tasks ok 가 나와야 함
+python3 scripts/check_tasks.py evals/vuln evals/long   # 22 of 22 tasks ok 가 나와야 함
 ./serve.sh test-all 1 3 4                   # 번호나 이름으로 모델 선택 (생략하면 폴더가 있는 모든 모델)
 ./serve.sh report                           # 표 + "recommended: <모델>"
+LONG=0 ./serve.sh test-all 1 3 4            # 시간이 없을 때: 긴 코딩 과제 빼기
 VULN_TASKS=all ./serve.sh test-all 1 3 4    # 느린 경로: 21개 과제 전체
 ```
 
-- **모델마다 하는 일:** 기동, `test`(텍스트·도구·이미지·속도), 취약점 eval 6개 과제(`VULN_TASKS`로 바꿈, `all` 또는 빈 값이면 21개 전체). `loadtest`는 돌리지 않습니다. 끝나면 모델을 내리고 `report`를 실행합니다.
-- **시간(추정치, 실측 아님):** 모델당 약 15~20분. 대부분 모델 기동과 6개 과제 평가 시간입니다. 21개 전체와 첫 기동(캐시 없음)은 더 걸립니다.
+- **모델마다 하는 일:** 기동, `test`(텍스트·도구·이미지·속도), 취약점 eval 6개 과제(`VULN_TASKS`로 바꿈, `all` 또는 빈 값이면 21개 전체), 긴 코딩 과제 1개(`LONG=0`이면 건너뜀). `loadtest`는 돌리지 않습니다. 끝나면 모델을 내리고 `report`를 실행합니다.
+- **시간(추정치, 실측 아님):** 모델당 약 25~40분. 모델 기동, 6개 과제 평가, 긴 코딩 과제(모델 호출 최대 40번)입니다. 긴 과제를 빼면 약 15~20분입니다. 21개 전체와 첫 기동(캐시 없음)은 더 걸립니다.
 - **입력:** `results/test/<모델>.json`(도구 호출 통과 여부), `results/eval/summary-vuln.csv`(모델별 최신 줄), `results/loadtest/<모델>-*.csv`(가장 최근 파일). 동시 사용자 수는 이전에 `./serve.sh loadtest`로 잰 결과를 그대로 씁니다. 없는 모델은 `-`로 표시하고 `missing:`에 올리며, 품질만으로 순위를 매깁니다.
 - **탈락 조건:** 도구 호출 점검 실패, 또는 loadtest가 있고 목표 속도를 지키는 최대 동시 사용자가 4명 미만(개발자 15명의 예상 동시 접속). 탈락 사유는 `excluded:`에 나옵니다.
 - **순위:** 취약점 eval 통과율 내림차순. 통과율 차이가 1개 과제 이내(과제 21개면 약 4.8점, 빠른 세트 6개면 약 16.7점)이면 동률로 보고 최대 동시 사용자, 그다음 세션 1건 시간(`session_s`, 짧은 쪽)으로 정합니다. 실행마다 결과가 흔들리기 때문입니다.
 - **주의:** 표의 `pass` 칸은 통과율과 과제 수(예: `3/5`)를 함께 보여 줍니다. 6개 과제만 돌린 결과는 작은 표본이라 차이가 작으면 해석에 주의하세요.
+- **`long` 칸:** 긴 코딩 과제 점수(0~100)입니다. 과제가 하나뿐이라 한 번의 실행으로 흔들리기 쉬워 순위에는 쓰지 않고 함께 보여 줍니다.
 - **저장:** `results/report.csv`.
 
 ### 취약점 점검·수정 평가 (`evals/vuln/`)
@@ -126,6 +128,20 @@ python3 scripts/check_tasks.py evals/vuln                 # 모델 없이 과제
 - **결과:** `results/eval/summary-vuln.csv`에 모델별 한 줄이 쌓입니다. 비교표와 `report`는 같은 과제 목록으로 돌린 결과끼리만 비교합니다 (빠른 세트 6개와 전체 21개를 섞지 않음).
 - **과제 구조:** `task.md`, `files/`(취약한 코드), `tests/`, `expected.json`(정답 CWE 목록, 정상 코드는 `[]`), `solution/`(모범 수정본, 검증용이며 모델에게 보이지 않음), `alternatives/`(다른 방식의 수정. `good-*`는 맞는 수정이라 통과해야 하고 `bad-*`는 틀리거나 불완전한 수정이라 떨어져야 함. `check_tasks.py`가 확인).
 - **주의:** 모델이 작성한 코드가 서버의 임시 폴더에서 실행됩니다 (테스트당 60초 제한).
+
+### 긴 코딩 과제 (`evals/long/`)
+
+```bash
+./serve.sh eval --tasks evals/long --max-turns 40
+python3 scripts/check_tasks.py evals/long
+```
+
+여러 파일을 읽고, 여러 모듈을 함께 고치는 능력을 봅니다. 과제는 `ticket-tracker` 하나입니다. 모듈 6개짜리 작은 티켓 관리 프로그램에 실제 업무처럼 변경 요청서를 줍니다.
+
+- **요청 내용:** 버그 1개(티켓을 지우면 다음 티켓이 번호를 재사용해 기존 티켓을 덮어씀), 담당자와 마감일 기능, 데이터 파일 형식 버전 2(예전 버전 1 파일도 읽고, 더 새 버전은 거부), 명령줄 옵션 4개, 보고서 항목 2개. 정답 기준으로 5개 파일을 고쳐야 합니다.
+- **채점:** 모델의 run_tests 도구는 보이는 테스트 11개(`test_func_*`, 기존 기능과 요청 일부)만 실행합니다. 숨은 인수 테스트 16개(`test_accept_*`)는 끝난 뒤에만 돌려, 요청서를 끝까지 지켰는지 봅니다. 숨은 테스트는 요청서에 적힌 이름과 형식만 검사합니다.
+- **점수(0~100):** 시작 코드에서 실패하던 테스트 가운데 모델 작업 뒤 통과한 비율입니다. 원래 통과하던 테스트를 망가뜨리면 점수가 깎입니다. 모든 테스트를 통과하면 100이고, 아무것도 안 하면 0입니다. 요청 하나를 빠뜨린 구현(`alternatives/bad-*`)은 94점입니다.
+- **결과:** `results/eval/summary-long.csv`. `report` 표의 `long` 칸에 나옵니다.
 
 ## 문제 해결
 

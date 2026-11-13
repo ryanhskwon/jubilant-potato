@@ -8,9 +8,11 @@ Task folder (<tasks>/<name>/)
   expected.json   security tasks only: {"cwe": ["CWE-89", ...]}, or {"cwe": []} for code with no vulnerability
   solution/       reference fix, used only by scripts/check_tasks.py
 
-Security tasks split their tests. The model's run_tests tool runs only tests/test_func_*.py
-(behavior must not change); tests/test_sec_*.py (the attack) runs only at grading. The model
-reports what it found in FINDINGS.json, which is graded against expected.json.
+When tests/test_func_*.py exist, the model's run_tests tool runs only those; the other tests run
+only at grading. Security tasks hide tests/test_sec_*.py (the attack) this way and also grade
+FINDINGS.json against expected.json. Coding tasks hide acceptance tests this way (evals/long) and
+get a score: the share of the tests failing on the starting code that pass after the model's work
+(a test it breaks counts against it), 100 when every test passes.
 
 Tools the model uses: list_files, read_file, write_file, run_tests
 Output: a row per task + one line per model appended to <out>/summary.csv (summary-<set>.csv
@@ -19,6 +21,7 @@ for task sets other than evals/tasks)
 e.g. ./serve.sh eval
      ./serve.sh eval --tasks evals/vuln
      ./serve.sh eval --tasks evals/vuln --only sql-injection,xss
+     ./serve.sh eval --tasks evals/long --max-turns 40
 """
 import argparse
 import csv
@@ -135,10 +138,33 @@ def reported(work):
     return sum(1 for i in ids if i), set().union(*ids)
 
 
+def tests_passed(task_dir, work):
+    """(all passed, number of passing tests); a test module that fails to import counts none."""
+    ok, out = run_tests(task_dir, work)
+    ran = re.search(r"Ran (\d+) test", out)
+    failed = sum(int(n) for n in re.findall(r"(?:failures|errors)=(\d+)", out))
+    return ok, int(ran.group(1)) - failed if ran else 0
+
+
+def defined_tests(task_dir):
+    # from the source, not from "Ran N": a module that fails to import shows up as one test
+    return sum(len(re.findall(r"^\s+def test_", open(f).read(), re.M))
+               for f in glob.glob(os.path.join(task_dir, "tests", ALL_TESTS)))
+
+
+def baseline(task_dir):
+    with tempfile.TemporaryDirectory() as start:
+        shutil.copytree(os.path.join(task_dir, "files"), start, dirs_exist_ok=True)
+        return tests_passed(task_dir, start)[1]
+
+
 def grade(task_dir, work, stat):
     expected_path = os.path.join(task_dir, "expected.json")
     if not os.path.isfile(expected_path):
-        stat["passed"] = run_tests(task_dir, work)[0]
+        ok, passing = tests_passed(task_dir, work)
+        total, base = defined_tests(task_dir), baseline(task_dir)
+        stat["passed"] = ok
+        stat["score"] = 100.0 if ok else round(100.0 * max(0, passing - base) / max(1, total - base), 1)
         return
     expected = {c.upper() for c in json.load(open(expected_path))["cwe"]}
     found = reported(work)
@@ -157,11 +183,11 @@ def grade(task_dir, work, stat):
 def solve(task_dir):
     work = tempfile.mkdtemp(prefix="eval-")
     shutil.copytree(os.path.join(task_dir, "files"), work, dirs_exist_ok=True)
-    security = os.path.isfile(os.path.join(task_dir, "expected.json"))
+    visible = FUNC_TESTS if glob.glob(os.path.join(task_dir, "tests", FUNC_TESTS)) else ALL_TESTS
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": open(os.path.join(task_dir, "task.md")).read()}]
     stat = {"turns": 0, "tool_calls": 0, "tool_errors": 0, "tokens": 0, "error": "",
-            "func": None, "found": None, "fixed": None, "false_alarm": None, "report": None}
+            "func": None, "found": None, "fixed": None, "false_alarm": None, "report": None, "score": None}
     t0 = time.time()
     try:
         for _ in range(args.max_turns):
@@ -176,7 +202,7 @@ def solve(task_dir):
                 break
             for c in calls:
                 result, bad = call_tool(c["function"]["name"], c["function"].get("arguments"), task_dir, work,
-                                        FUNC_TESTS if security else ALL_TESTS)
+                                        visible)
                 stat["tool_calls"] += 1
                 stat["tool_errors"] += bad
                 messages.append({"role": "tool", "tool_call_id": c["id"], "content": result})
@@ -196,17 +222,18 @@ tasks = sorted(d for d in glob.glob(os.path.join(args.tasks, "*")) if os.path.is
 if args.only:
     tasks = [t for t in tasks if os.path.basename(t) in args.only.split(",")]
 print("model {} | {} tasks in {}\n".format(MODEL, len(tasks), args.tasks))
-print("{:<22} {:>6} {:>7} {:>5} {:>5} {:>6} {:>5} {:>5}".format(
-    "task", "result", "time(s)", "turns", "t.err", "found", "fixed", "func"))
+print("{:<22} {:>6} {:>7} {:>5} {:>5} {:>6} {:>5} {:>5} {:>5}".format(
+    "task", "result", "time(s)", "turns", "t.err", "found", "fixed", "func", "score"))
 rows = []
 for t in tasks:
     s = solve(t)
     s["task"] = os.path.basename(t)
     rows.append(s)
     found = mark(s["found"]) if s["false_alarm"] is None else mark(s["false_alarm"], "ALARM", "none")
-    print("{:<22} {:>6} {:>7.0f} {:>5} {:>5} {:>6} {:>5} {:>5}  {}".format(
+    print("{:<22} {:>6} {:>7.0f} {:>5} {:>5} {:>6} {:>5} {:>5} {:>5}  {}".format(
         s["task"][:22], "PASS" if s["passed"] else "FAIL", s["seconds"], s["turns"], s["tool_errors"],
-        found, mark(s["fixed"]), mark(s["func"]), s["error"]), flush=True)
+        found, mark(s["fixed"]), mark(s["func"]), "-" if s["score"] is None else "{:.0f}".format(s["score"]),
+        s["error"]), flush=True)
 
 n = len(rows)
 passed = sum(r["passed"] for r in rows)
@@ -217,6 +244,9 @@ summary = {
     "tool_errors": sum(r["tool_errors"] for r in rows),
     "tokens": sum(r["tokens"] for r in rows),
 }
+scored = [r["score"] for r in rows if r["score"] is not None]
+if scored:
+    summary["score"] = round(sum(scored) / len(scored), 1)
 vulnerable = [r for r in rows if r["fixed"] is not None]
 clean = [r for r in rows if r["false_alarm"] is not None]
 security = vulnerable or clean
@@ -230,6 +260,8 @@ if security:
         no_report=sum(not r["report"] for r in vulnerable + clean))
 print("\npassed {}/{} ({}%), avg {}s per task, {} tool call failures".format(
     passed, n, summary["pass_rate"], summary["avg_seconds"], summary["tool_errors"]))
+if scored:
+    print("score {} (share of the requested work whose tests pass, 0-100)".format(summary["score"]))
 if security:
     print("detected {detect_rate}% and fixed {fix_rate}% of {vulnerable} vulnerable tasks, "
           "broke behavior in {regressions}".format(**summary))
@@ -264,7 +296,8 @@ if security:
     line = ("| {model} | {pass_rate}% | {detect_rate}% | {fix_rate}% | {regressions} | {false_alarms}/{clean} "
             "| {avg_seconds}s | {date} |")
 else:
-    print("| model | pass rate | time per task | tool errors | tokens | date |\n|---|---|---|---|---|---|")
-    line = "| {model} | {pass_rate}% ({passed}/{tasks}) | {avg_seconds}s | {tool_errors} | {tokens} | {date} |"
+    print("| model | pass rate | score | time per task | tool errors | tokens | date |\n|---|---|---|---|---|---|---|")
+    line = ("| {model} | {pass_rate}% ({passed}/{tasks}) | {score} | {avg_seconds}s | {tool_errors} | {tokens} "
+            "| {date} |")
 for r in sorted(latest.values(), key=lambda r: -float(r["pass_rate"])):
     print(line.format(**r))

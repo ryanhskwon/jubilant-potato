@@ -3,6 +3,8 @@
 
 Gates drop models that cannot serve the team. The rest are ranked by vulnerability
 eval pass rate, then capacity. Pass rates one task apart count as a tie.
+The long coding task score (evals/long) is shown next to them but does not change the
+order: it is one task, too noisy to rank by.
 Capacity comes from the newest loadtest csv already on disk; a model without one
 is listed as missing, not excluded.
 
@@ -44,18 +46,25 @@ def read_tool(model):
         return None
 
 
-def read_quality():
+def read_eval(name, keys):
     """Latest row per model among runs on the same task list as the newest run, so a
     6-task quick run is never compared with a 21-task run."""
-    rows = [r for r in rows_of(os.path.join(ROOT, "eval", "summary-vuln.csv")) if r.get("model")]
+    rows = [r for r in rows_of(os.path.join(ROOT, "eval", name)) if r.get("model")]
     task_ids = rows[-1].get("task_ids") if rows else None
     latest = {}
     for r in rows:
         if r.get("task_ids") == task_ids:
             latest[r["model"]] = r
-    keys = ("pass_rate", "passed", "tasks", "detect_rate", "fix_rate", "regressions", "false_alarms",
-            "clean", "vulnerable")
     return {m: {k: num(r.get(k)) for k in keys} for m, r in latest.items()}
+
+
+def read_quality():
+    return read_eval("summary-vuln.csv", ("pass_rate", "passed", "tasks", "detect_rate", "fix_rate", "regressions",
+                                          "false_alarms", "clean", "vulnerable"))
+
+
+def read_long():
+    return {m: v["score"] for m, v in read_eval("summary-long.csv", ("score",)).items()}
 
 
 def loadtest_files(model):
@@ -122,11 +131,11 @@ def fmt(v, spec):
     return "-" if v is None else format(v, spec)
 
 
-ROW = "{:<20} {:>9} {:>4} {:>4} {:>5} {:>6} {:>5} {:>6} {:>6} {:>4}"
+ROW = "{:<17} {:>9} {:>4} {:>4} {:>5} {:>6} {:>5} {:>6} {:>6} {:>4} {:>4}"
 
 
 def table(records):
-    head = ROW.format("model", "pass", "det%", "fix%", "broke", "alarms", "users", "TTFT@1", "sess s", "tool")
+    head = ROW.format("model", "pass", "det%", "fix%", "broke", "alarms", "users", "TTFT@1", "sess s", "long", "tool")
     lines = [head, "-" * len(head)]
     for r in records:
         q, c = r["quality"], r["capacity"]
@@ -137,15 +146,16 @@ def table(records):
             alarms = "{:.0f}/{:.0f}".format(q["false_alarms"], q["clean"] or 0)
         tool = {True: "ok", False: "FAIL", None: "-"}[r["tool_ok"]]
         lines.append(ROW.format(
-            r["model"][:20], pas, fmt(q and q["detect_rate"], ".0f"), fmt(q and q["fix_rate"], ".0f"),
+            r["model"][:17], pas, fmt(q and q["detect_rate"], ".0f"), fmt(q and q["fix_rate"], ".0f"),
             fmt(q and q["regressions"], ".0f"), alarms, fmt(c and c["max_users"], "d"),
-            fmt(c and c["ttft1"], ".1f"), fmt(c and c["session_s"], ".0f"), tool))
+            fmt(c and c["ttft1"], ".1f"), fmt(c and c["session_s"], ".0f"), fmt(r["long"], ".0f"), tool))
     return lines
 
 
 def write_csv(path, ordered, ranked):
     cols = ["model", "status", "pass_rate", "passed", "tasks", "detect_rate", "fix_rate", "regressions",
-            "false_alarms", "clean", "vulnerable", "max_users", "all_passed", "ttft1", "session_s", "tool_ok",
+            "false_alarms", "clean", "vulnerable", "max_users", "all_passed", "ttft1", "session_s", "long_score",
+            "tool_ok",
             "reason"]
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols)
@@ -153,7 +163,7 @@ def write_csv(path, ordered, ranked):
         for r in ordered:
             status = ("recommended" if ranked and r is ranked[0] else "ranked" if r in ranked
                       else "excluded" if r["excluded"] else "unranked")
-            row = {"model": r["model"], "status": status, "tool_ok": r["tool_ok"],
+            row = {"model": r["model"], "status": status, "tool_ok": r["tool_ok"], "long_score": r["long"],
                    "reason": "; ".join(r["excluded"])}
             row.update(r["quality"] or {})
             row.update(r["capacity"] or {})
@@ -161,9 +171,10 @@ def write_csv(path, ordered, ranked):
 
 
 def main():
-    quality = read_quality()
-    records = [{"model": m, "tool_ok": read_tool(m), "quality": quality.get(m), "capacity": read_capacity(m)}
-               for m in sorted(discover(quality))]
+    quality, long_scores = read_quality(), read_long()
+    records = [{"model": m, "tool_ok": read_tool(m), "quality": quality.get(m), "capacity": read_capacity(m),
+                "long": long_scores.get(m)}
+               for m in sorted(discover(quality) | set(long_scores))]
     if not records:
         print("no results found under " + ROOT)
         return
@@ -188,6 +199,8 @@ def main():
             w["quality"]["pass_rate"], w["quality"]["passed"] or 0, w["quality"]["tasks"] or 0,
             "{} users, session {}s".format(c["max_users"], fmt(c["session_s"], ".0f")) if c
             else "no loadtest yet"))
+        if w["long"] is not None:
+            print("  long coding task score {:.0f} (shown, not used for the order)".format(w["long"]))
         print("  tie rule: pass rates 1 task apart ({:.1f} points) tie; capacity decides.".format(tie_gap))
         if len(group) > 1:
             print("  tied with the best pass rate: " + ", ".join(r["model"] for r in group))
@@ -200,7 +213,8 @@ def main():
             print("  {}: {}".format(r["model"], "; ".join(r["excluded"])))
     missing = []
     for r in records:
-        gaps = [n for n, v in (("quality", r["quality"]), ("capacity", r["capacity"])) if v is None]
+        gaps = [n for n, v in (("quality", r["quality"]), ("capacity", r["capacity"]), ("long", r["long"]))
+                if v is None]
         if gaps:
             missing.append("{} ({})".format(r["model"], ", ".join(gaps)))
     if missing:
