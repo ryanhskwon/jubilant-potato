@@ -204,6 +204,11 @@ def main():
         print("  tie rule: pass rates 1 task apart ({:.1f} points) tie; capacity decides.".format(tie_gap))
         if len(group) > 1:
             print("  tied with the best pass rate: " + ", ".join(r["model"] for r in group))
+        same = [r["model"] for r in ranked[1:] if sort_key(r, top) == sort_key(w, top)]
+        if same:
+            print("  NOT DECIDED, equal on pass and users, no session time to split them:")
+            print("    " + ", ".join([w["model"]] + same))
+            print("    rerun ./serve.sh loadtest for them (newer csv has session_s)")
     else:
         print("recommended: none (no model passed the gates with eval data)")
     excluded = [r for r in records if r["excluded"]]
