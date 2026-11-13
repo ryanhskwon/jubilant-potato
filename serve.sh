@@ -143,7 +143,7 @@ test-all)
     echo "== $m"
     if ./serve.sh up "$m"; then
       { ./serve.sh test; "$PY" scripts/eval.py --tasks evals/vuln "${only[@]}"
-        [[ $LONG == 0 ]] || "$PY" scripts/eval.py --tasks evals/long --max-turns 40; } 2>&1 | tee "$out/$m.txt"
+        [[ $LONG == 0 ]] || "$PY" scripts/eval.py --tasks evals/long --max-turns 40 --time-limit 540; } 2>&1 | tee "$out/$m.txt"
     else
       echo "startup failed" > "$out/$m.txt"
     fi

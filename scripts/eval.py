@@ -21,7 +21,7 @@ for task sets other than evals/tasks)
 e.g. ./serve.sh eval
      ./serve.sh eval --tasks evals/vuln
      ./serve.sh eval --tasks evals/vuln --only sql-injection,xss
-     ./serve.sh eval --tasks evals/long --max-turns 40
+     ./serve.sh eval --tasks evals/long --max-turns 40 --time-limit 540
 """
 import argparse
 import csv
@@ -30,6 +30,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -40,6 +41,8 @@ p = argparse.ArgumentParser()
 p.add_argument("--tasks", default="evals/tasks", help="task folder")
 p.add_argument("--only", default="", help="run only these comma-separated task names")
 p.add_argument("--max-turns", type=int, default=15, help="max model calls per task")
+p.add_argument("--time-limit", type=int, default=0,
+               help="seconds per task (0 = none); then the work so far is graded")
 p.add_argument("--out", default="results/eval", help="output folder")
 args = p.parse_args()
 
@@ -63,10 +66,10 @@ TOOLS = [
 ALL_TESTS, FUNC_TESTS, SEC_TESTS = "test_*.py", "test_func_*.py", "test_sec_*.py"
 
 
-def chat(messages):
+def chat(messages, timeout=900):
     body = {"model": MODEL, "messages": messages, "tools": TOOLS, "max_tokens": 8192}
     req = urllib.request.Request(URL + "/chat/completions", json.dumps(body).encode(), HEADERS)
-    return json.load(urllib.request.urlopen(req, timeout=900))
+    return json.load(urllib.request.urlopen(req, timeout=timeout))
 
 
 def run_tests(task_dir, work, pattern=ALL_TESTS):
@@ -191,7 +194,17 @@ def solve(task_dir):
     t0 = time.time()
     try:
         for _ in range(args.max_turns):
-            d = chat(messages)
+            left = args.time_limit - (time.time() - t0) if args.time_limit else 900
+            if left <= 0:
+                stat["error"] = "time limit"
+                break
+            try:
+                d = chat(messages, timeout=max(1, min(900, left)))
+            except socket.timeout:
+                if not args.time_limit:
+                    raise
+                stat["error"] = "time limit"
+                break
             stat["turns"] += 1
             stat["tokens"] += d.get("usage", {}).get("total_tokens", 0)
             m = d["choices"][0]["message"]
