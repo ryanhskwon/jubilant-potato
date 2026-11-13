@@ -21,7 +21,7 @@ for task sets other than evals/tasks)
 e.g. ./serve.sh eval
      ./serve.sh eval --tasks evals/vuln
      ./serve.sh eval --tasks evals/vuln --only sql-injection,xss
-     ./serve.sh eval --tasks evals/long --max-turns 40 --time-limit 540
+     ./serve.sh eval --tasks evals/long --max-turns 60 --time-limit 900
 """
 import argparse
 import csv

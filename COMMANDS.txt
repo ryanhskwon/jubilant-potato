@@ -36,7 +36,7 @@ less results/loadtest/<model>-<date>.txt # report (also a .csv)
 ./serve.sh eval --tasks evals/vuln --only sql-injection,xss
 less results/eval/summary-vuln.csv
 ./serve.sh eval                          # general coding tasks (4)
-./serve.sh eval --tasks evals/long --time-limit 540   # long task, 9 min cap
+./serve.sh eval --tasks evals/long --time-limit 900   # long task, 15 min cap
 python3 scripts/check_tasks.py evals/vuln evals/long   # check tasks, no model
 
 [7] Pick a model: quick visit flow
@@ -44,8 +44,8 @@ git pull
 python3 scripts/check_tasks.py evals/vuln evals/long   # expect: 22 of 22 ok
 ./serve.sh test-all 1 3 4                # chosen models (numbers or names)
 ./serve.sh report                        # table + "recommended: <model>"
-#   Time (estimate, not measured): about 25-30 min per model: startup, the
-#   6-task eval, and the long coding task (stopped after 9 min and graded).
+#   Time (estimate, not measured): about 30-35 min per model: startup, the
+#   6-task eval, and the long coding task (stopped after 15 min and graded).
 #   No loadtest runs here. Short on time: LONG=0 ./serve.sh test-all 1 3 4
 #   test-all with no numbers = every model whose folder exists.
 #   Per model: up, test, eval of 6 vuln tasks (VULN_TASKS), the long coding
