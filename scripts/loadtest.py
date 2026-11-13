@@ -20,6 +20,7 @@ import glob
 import json
 import os
 import random
+import subprocess
 import threading
 import time
 import urllib.request
@@ -158,8 +159,22 @@ GAUGES = ("vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_perc", "vllm:num_req
           "vllm:num_requests_running")
 
 
+GPU_FIELDS = ("util", "power", "temp", "clock", "mem")
+
+
+def gpu_now():
+    """(util %, power W, temp C, SM clock MHz, memory used MiB) of the first GPU, or None."""
+    try:
+        line = subprocess.run(
+            ["nvidia-smi", "--query-gpu=utilization.gpu,power.draw,temperature.gpu,clocks.sm,memory.used",
+             "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=10).stdout.splitlines()[0]
+        return tuple(float(v) for v in line.split(","))
+    except (OSError, IndexError, ValueError, subprocess.SubprocessError):
+        return None
+
+
 def sample(stop, srv):
-    srv["start"] = scrape()
+    srv["start"], srv["gpu"] = scrape(), []
     while not stop.wait(1):
         s = scrape()
         if s:
@@ -167,7 +182,20 @@ def sample(stop, srv):
         for k in GAUGES:
             if k in s:
                 srv[k] = max(srv.get(k, 0.0), s[k])
+        g = gpu_now()
+        if g:
+            srv["gpu"].append(g)
     srv["end"] = scrape() or srv.get("end", {})
+
+
+def gpu_stats(samples):
+    if not samples:
+        return {"gpu_" + k: None for k in ("util", "power", "power_max", "temp_max", "clock", "clock_min", "mem_gb")}
+    cols = dict(zip(GPU_FIELDS, zip(*samples)))
+    avg = lambda k: sum(cols[k]) / len(cols[k])  # noqa: E731
+    return {"gpu_util": avg("util"), "gpu_power": avg("power"), "gpu_power_max": max(cols["power"]),
+            "gpu_temp_max": max(cols["temp"]), "gpu_clock": avg("clock"), "gpu_clock_min": min(cols["clock"]),
+            "gpu_mem_gb": max(cols["mem"]) / 1024}
 
 
 def delta(srv, name):
@@ -221,6 +249,7 @@ def step(users):
         "prefill_avg": hist_avg(srv, "vllm:request_prefill_time_seconds"),
         "decode_avg": hist_avg(srv, "vllm:request_decode_time_seconds"),
     }
+    row.update(gpu_stats(srv.get("gpu")))
     row["session_s"] = row["lat_mean"] * args.turns
     row["ok"] = bool(done) and not row["errors"] and row["ttft_p95"] <= args.ttft and row["tps_p5"] >= args.tps
     if (kv is not None and kv >= 90) or (preempt or 0) > 0:
@@ -306,6 +335,17 @@ for r in rows:
         cell(r["decode_avg"], "{:.1f}s"), cell(r["prefix_hit"] and r["prefix_hit"] * 100, "{:.0f}%"),
         cell(r["prefill_tps"], "{:.0f}"), cell(r["running_max"], "{:.0f}"), cell(r["waiting_max"], "{:.0f}")))
 out("prefill tok/s = input tokens computed per second (cache hits excluded)")
+out()
+out("GPU (nvidia-smi every second during the step)")
+out("{:>5} {:>6} {:>8} {:>8} {:>6} {:>9} {:>9} {:>8}".format(
+    "users", "util", "power", "max W", "temp", "SM clock", "min clock", "VRAM"))
+for r in rows:
+    out("{:>5} {:>6} {:>8} {:>8} {:>6} {:>9} {:>9} {:>8}".format(
+        r["users"], cell(r["gpu_util"], "{:.0f}%"), cell(r["gpu_power"], "{:.0f}W"),
+        cell(r["gpu_power_max"], "{:.0f}W"), cell(r["gpu_temp_max"], "{:.0f}C"),
+        cell(r["gpu_clock"], "{:.0f}MHz"), cell(r["gpu_clock_min"], "{:.0f}MHz"), cell(r["gpu_mem_gb"], "{:.1f}GB")))
+out("util ~100% = GPU busy (more users only add waiting); a falling SM clock at high")
+out("power or temp = throttling, which lowers tok/s")
 out()
 in_avg = sum(r["in_tokens_avg"] for r in rows) / len(rows) if rows else 0
 out_avg = sum(r["out_tokens_avg"] for r in rows) / len(rows) if rows else 0

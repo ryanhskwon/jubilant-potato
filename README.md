@@ -57,6 +57,7 @@ cp .env.example .env      # 외부에 열면 VLLM_API_KEY 설정
 - **단계:** 동시 세션을 `--users`(1, 2, 4, 6, 8, 12, 16) 순서로 늘리고, 단계마다 `--duration`(180)초 동안 측정합니다. 두 단계 연속 목표 미달이면 멈춥니다.
 - **지표:** TTFT p50/p95, 호출당 출력 tok/s (p50, p5), 지연 p95, 전체 출력 tok/s, 서버의 KV 캐시 사용률과 대기 요청. `limit` 칸이 한계 원인을 보여 줍니다 (`KV` 캐시 부족, `seqs` max-num-seqs 대기, `pref` 새 세션의 prefill 대기, `gpu` 연산).
 - **서버 분석 표:** vLLM `/metrics`에서 호출당 평균 queue(대기열) / prefill / decode 시간, prefix cache 적중률, prefill tok/s(캐시 제외 입력 처리 속도), 최대 running / waiting을 단계별로 보여 줍니다. TTFT는 대략 queue + prefill이라, TTFT가 늦은 이유가 대기인지 입력 처리인지 구분됩니다.
+- **GPU 표:** 단계마다 1초 간격으로 `nvidia-smi`를 읽어 평균 사용률, 평균·최대 전력, 최고 온도, 평균·최저 SM 클럭, 최대 VRAM을 보여 줍니다. 사용률이 100%에 가까우면 GPU가 꽉 찬 것이라 사용자를 늘려도 대기만 늘고, 전력이나 온도가 높을 때 클럭이 떨어지면 스로틀링으로 tok/s가 낮아진 것입니다. CSV에는 `gpu_*` 열로 남습니다. `nvidia-smi`가 없으면 `-`로 나옵니다.
 - **목표:** TTFT p95 5초 이하, 호출의 95%가 20 tok/s 이상 (`--ttft`, `--tps`로 변경).
 - **결론:** 목표를 지키는 최대 동시 세션, 그 부하에서의 속도와 세션 1건 소요 시간, 배치 최대 처리량(시간당 세션), 사용 비율 5/10/25/50%별 등록 사용자 수, 운영용 `max-num-seqs` 권장값. 낮에 배치 작업이 세션을 차지한다면 `--batch-sessions N`으로 빼고 계산합니다.
 - **저장:** `results/loadtest/<모델>-<날짜>.txt`와 `.csv`.
