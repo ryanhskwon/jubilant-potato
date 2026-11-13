@@ -67,7 +67,7 @@ ALL_TESTS, FUNC_TESTS, SEC_TESTS = "test_*.py", "test_func_*.py", "test_sec_*.py
 
 
 def chat(messages, timeout=900):
-    body = {"model": MODEL, "messages": messages, "tools": TOOLS, "max_tokens": 8192}
+    body = {"model": MODEL, "messages": messages, "tools": TOOLS, "max_tokens": 16384}  # same as the team coding agent
     req = urllib.request.Request(URL + "/chat/completions", json.dumps(body).encode(), HEADERS)
     return json.load(urllib.request.urlopen(req, timeout=timeout))
 
