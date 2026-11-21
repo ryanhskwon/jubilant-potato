@@ -42,6 +42,8 @@ p.add_argument("--tool-output", type=int, default=1000, help="code tokens added 
 p.add_argument("--ttft", type=float, default=5.0, help="target: TTFT p95 (seconds)")
 p.add_argument("--tps", type=float, default=20.0, help="target: 95%% of calls at least this many output tok/s")
 p.add_argument("--batch-sessions", type=int, default=0, help="sessions reserved for daytime batch jobs")
+p.add_argument("--request-timeout", type=int, default=1800,
+               help="give up on a call after this many seconds without data (a stuck stream counts as an error)")
 p.add_argument("--csv", default="", help="CSV path (default: next to the .txt report)")
 p.add_argument("--out", default=os.path.join(os.environ.get("RESULTS_DIR", "results"), "loadtest"),
                help="report folder")
@@ -107,7 +109,7 @@ def call(messages, max_tokens, fixed=True):
     t0, first, n_out, n_in, text = time.time(), None, 0, 0, []
     try:
         req = urllib.request.Request(URL + "/chat/completions", json.dumps(body).encode(), HEADERS)
-        for line in urllib.request.urlopen(req, timeout=1800):
+        for line in urllib.request.urlopen(req, timeout=args.request_timeout):
             if not line.startswith(b"data: {"):
                 continue
             d = json.loads(line[6:])
