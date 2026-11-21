@@ -173,7 +173,7 @@ python scriptseport.py
 - **모델 고르기:** 한 주소에 모델이 여러 개면 `VLLM_MODEL`로 지정합니다. 비우면 목록의 첫 모델을 씁니다. 모델마다 위 명령을 반복합니다.
 - **결과:** `RESULTS_DIR` 폴더에 따로 쌓여 RTX 결과와 섞이지 않습니다. 부하 시험 결과의 `gpu` 열에는 `GPU_LABEL` 값이 남습니다.
 - **원격이라 빠지는 것:** GPU 표(`nvidia-smi`는 서버에서만 보임)는 `-`로 나옵니다. 서버 분석 표는 서버의 `/metrics`에 접근할 수 있을 때만 나옵니다.
-- **Windows 주의:** 취약점 과제 중 redos와 temp-file은 Windows에서 채점이 맞지 않습니다(`check_tasks.py`로 확인). 빠른 세트 6개와 긴 과제는 문제없습니다.
+- **Windows 주의:** command-injection 과제는 `wc` 명령을 쓰므로 Git의 유닉스 도구를 경로에 넣어야 합니다(`$env:PATH = "C:\Program Files\Git\usr\bin;" + $env:PATH`). temp-file은 파일 권한 방식이 달라 Windows에서 채점되지 않습니다. 이 설정이면 빠른 세트 6개와 긴 과제는 모두 정상입니다(`check_tasks.py`로 확인).
 - **해석 주의:** 결과는 그 서버의 vLLM 설정과 GPU 조건(MIG 분할 등)에서의 값입니다. 서버 설정을 함께 기록하세요. 운영 중인 서버라면 다른 사용자의 요청이 섞이고, 부하 시험이 그 사용자들을 느리게 할 수 있으니 한가한 시간에 작은 단계부터 돌립니다.
 
 ## 문제 해결
