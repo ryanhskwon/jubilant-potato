@@ -272,6 +272,7 @@ def step(users):
         "running_max": srv.get("vllm:num_requests_running"),
         "prefix_hit": hits / queries if hits is not None and queries else None, "preemptions": preempt,
         "prefill_tps": (queries - hits) / wall if hits is not None and queries is not None else None,
+        "server_ttft_avg": hist_avg(srv, "vllm:time_to_first_token_seconds"),
         "queue_avg": hist_avg(srv, "vllm:request_queue_time_seconds"),
         "prefill_avg": hist_avg(srv, "vllm:request_prefill_time_seconds"),
         "decode_avg": hist_avg(srv, "vllm:request_decode_time_seconds"),
@@ -365,14 +366,17 @@ def cell(v, fmt):
 
 out()
 out("SERVER BREAKDOWN (per call averages from vLLM /metrics; TTFT ~ queue + prefill)")
-out("{:>5} {:>8} {:>8} {:>8} {:>9} {:>13} {:>7} {:>7}".format(
-    "users", "queue", "prefill", "decode", "cache hit", "prefill tok/s", "running", "waiting"))
+out("{:>5} {:>8} {:>8} {:>8} {:>8} {:>9} {:>8} {:>7} {:>7}".format(
+    "users", "srv TTFT", "queue", "prefill", "decode", "cache hit", "pf tok/s", "running", "waiting"))
 for r in rows:
-    out("{:>5} {:>8} {:>8} {:>8} {:>9} {:>13} {:>7} {:>7}".format(
-        r["users"], cell(r["queue_avg"], "{:.2f}s"), cell(r["prefill_avg"], "{:.2f}s"),
-        cell(r["decode_avg"], "{:.1f}s"), cell(r["prefix_hit"] and r["prefix_hit"] * 100, "{:.0f}%"),
+    out("{:>5} {:>8} {:>8} {:>8} {:>8} {:>9} {:>8} {:>7} {:>7}".format(
+        r["users"], cell(r["server_ttft_avg"], "{:.2f}s"), cell(r["queue_avg"], "{:.2f}s"),
+        cell(r["prefill_avg"], "{:.2f}s"), cell(r["decode_avg"], "{:.1f}s"),
+        cell(r["prefix_hit"] and r["prefix_hit"] * 100, "{:.0f}%"),
         cell(r["prefill_tps"], "{:.0f}"), cell(r["running_max"], "{:.0f}"), cell(r["waiting_max"], "{:.0f}")))
-out("prefill tok/s = input tokens computed per second (cache hits excluded)")
+out("srv TTFT = first token as vLLM measures it; TTFT minus srv TTFT = time outside")
+out("  vLLM (network, gateway, HTTP)")
+out("pf tok/s = input tokens computed per second (cache hits excluded)")
 out()
 out("GPU (nvidia-smi every second during the step)")
 out("{:>5} {:>6} {:>8} {:>8} {:>6} {:>9} {:>9} {:>8}".format(
