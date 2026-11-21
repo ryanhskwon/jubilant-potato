@@ -20,6 +20,7 @@ import glob
 import json
 import os
 import random
+import re
 import subprocess
 import threading
 import time
@@ -164,6 +165,10 @@ def scrape():
         except (IndexError, ValueError):
             continue
         name = line.split("{")[0].split()[0]
+        if name.endswith("_bucket"):  # keep each histogram bucket apart for percentiles
+            le = re.search(r'le="([^"]+)"', line)
+            if le:
+                name += "|" + le.group(1)
         vals[name] = vals.get(name, 0.0) + v
     return vals
 
@@ -234,6 +239,25 @@ def hist_avg(srv, name):
     return total / count if total is not None and count else None
 
 
+def hist_pct(srv, name, q):
+    """Upper bound of the histogram bucket that holds the q-th percentile during the step."""
+    prefix = name + "_bucket|"
+    buckets = []
+    for key in srv.get("end", {}):
+        if key.startswith(prefix):
+            d = delta(srv, key)
+            le = key[len(prefix):]
+            if d is not None:
+                buckets.append((float("inf") if le == "+Inf" else float(le), d))
+    buckets.sort()
+    if not buckets or buckets[-1][1] <= 0:
+        return None
+    for le, cum in buckets:
+        if cum >= buckets[-1][1] * q / 100:
+            return le
+    return None
+
+
 def pct(values, q):
     s = sorted(values)
     return s[min(int(len(s) * q / 100), len(s) - 1)] if s else 0.0
@@ -273,6 +297,7 @@ def step(users):
         "prefix_hit": hits / queries if hits is not None and queries else None, "preemptions": preempt,
         "prefill_tps": (queries - hits) / wall if hits is not None and queries is not None else None,
         "server_ttft_avg": hist_avg(srv, "vllm:time_to_first_token_seconds"),
+        "server_ttft_p95": hist_pct(srv, "vllm:time_to_first_token_seconds", 95),
         "queue_avg": hist_avg(srv, "vllm:request_queue_time_seconds"),
         "prefill_avg": hist_avg(srv, "vllm:request_prefill_time_seconds"),
         "decode_avg": hist_avg(srv, "vllm:request_decode_time_seconds"),
@@ -366,17 +391,18 @@ def cell(v, fmt):
 
 out()
 out("SERVER BREAKDOWN (per call averages from vLLM /metrics; TTFT ~ queue + prefill)")
-out("{:>5} {:>8} {:>8} {:>8} {:>8} {:>9} {:>8} {:>7} {:>7}".format(
-    "users", "srv TTFT", "queue", "prefill", "decode", "cache hit", "pf tok/s", "running", "waiting"))
+out("{:>5} {:>8} {:>8} {:>7} {:>8} {:>7} {:>5} {:>8} {:>4} {:>4}".format(
+    "users", "srv TTFT", "srv p95", "queue", "prefill", "decode", "hit", "pf tok/s", "run", "wait"))
 for r in rows:
-    out("{:>5} {:>8} {:>8} {:>8} {:>8} {:>9} {:>8} {:>7} {:>7}".format(
-        r["users"], cell(r["server_ttft_avg"], "{:.2f}s"), cell(r["queue_avg"], "{:.2f}s"),
-        cell(r["prefill_avg"], "{:.2f}s"), cell(r["decode_avg"], "{:.1f}s"),
+    out("{:>5} {:>8} {:>8} {:>7} {:>8} {:>7} {:>5} {:>8} {:>4} {:>4}".format(
+        r["users"], cell(r["server_ttft_avg"], "{:.2f}s"), cell(r["server_ttft_p95"], "<={:g}s"),
+        cell(r["queue_avg"], "{:.2f}s"), cell(r["prefill_avg"], "{:.2f}s"), cell(r["decode_avg"], "{:.1f}s"),
         cell(r["prefix_hit"] and r["prefix_hit"] * 100, "{:.0f}%"),
         cell(r["prefill_tps"], "{:.0f}"), cell(r["running_max"], "{:.0f}"), cell(r["waiting_max"], "{:.0f}")))
-out("srv TTFT = first token as vLLM measures it; TTFT minus srv TTFT = time outside")
-out("  vLLM (network, gateway, HTTP)")
-out("pf tok/s = input tokens computed per second (cache hits excluded)")
+out("srv TTFT = first token as vLLM measures it (avg; p95 = histogram bucket bound).")
+out("  TTFT minus srv TTFT = time outside vLLM (network, gateway, HTTP)")
+out("hit = prefix cache hits; pf tok/s = input tokens computed per second (hits")
+out("  excluded); run / wait = most requests running / waiting at once")
 out()
 out("GPU (nvidia-smi every second during the step)")
 out("{:>5} {:>6} {:>8} {:>8} {:>6} {:>9} {:>9} {:>8}".format(
