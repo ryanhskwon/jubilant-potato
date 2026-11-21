@@ -17,7 +17,7 @@ import os
 import re
 import sys
 
-ROOT = sys.argv[1] if len(sys.argv) > 1 else "results"
+ROOT = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("RESULTS_DIR", "results")
 MIN_USERS = 4
 INF = float("inf")
 STAMP = re.compile(r"^(.+)-\d{8}-\d{4}\.csv$")
@@ -32,7 +32,7 @@ def num(v):
 
 def rows_of(path):
     try:
-        with open(path, newline="") as f:
+        with open(path, newline="", encoding="utf-8") as f:
             return list(csv.DictReader(f))
     except (OSError, csv.Error):
         return []
@@ -40,7 +40,7 @@ def rows_of(path):
 
 def read_tool(model):
     try:
-        with open(os.path.join(ROOT, "test", model + ".json")) as f:
+        with open(os.path.join(ROOT, "test", model + ".json"), encoding="utf-8") as f:
             return bool(json.load(f)["checks"]["tool"])
     except (OSError, ValueError, KeyError, TypeError):
         return None
@@ -172,7 +172,7 @@ def write_csv(path, ordered, ranked):
             "false_alarms", "clean", "vulnerable", "max_users", "all_passed", "ttft1", "session_s", "long_score",
             "tool_ok",
             "reason"]
-    with open(path, "w", newline="") as f:
+    with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=cols)
         w.writeheader()
         for r in ordered:

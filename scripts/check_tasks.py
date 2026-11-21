@@ -35,7 +35,8 @@ def run(task, pattern, overlay=None):
             shutil.copy(f, work)
         try:
             r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", ".", "-p", pattern],
-                               cwd=work, capture_output=True, text=True, timeout=60)
+                               cwd=work, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                               timeout=60, env=dict(os.environ, PYTHONIOENCODING="utf-8"))
             return r.returncode == 0, r.stdout + r.stderr
         except subprocess.TimeoutExpired:
             return False, "timed out"
@@ -43,13 +44,13 @@ def run(task, pattern, overlay=None):
 
 def defined_tests(task):
     """Same count as eval.py uses for the score."""
-    return sum(len(re.findall(r"^\s+def test_", open(f).read(), re.M))
+    return sum(len(re.findall(r"^\s+def test_", open(f, encoding="utf-8").read(), re.M))
                for f in glob.glob(os.path.join(task, "tests", "test_*.py")))
 
 
 def check_security(task, problems):
     """False when the task has nothing more to check (clean task)."""
-    cwe = json.load(open(os.path.join(task, "expected.json")))["cwe"]
+    cwe = json.load(open(os.path.join(task, "expected.json"), encoding="utf-8"))["cwe"]
     if not glob.glob(os.path.join(task, "tests", "test_func_*.py")):
         problems.append("no func tests")
     elif not run(task, "test_func_*.py")[0]:

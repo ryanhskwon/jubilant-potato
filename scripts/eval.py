@@ -43,7 +43,8 @@ p.add_argument("--only", default="", help="run only these comma-separated task n
 p.add_argument("--max-turns", type=int, default=15, help="max model calls per task")
 p.add_argument("--time-limit", type=int, default=0,
                help="seconds per task (0 = none); then the work so far is graded")
-p.add_argument("--out", default="results/eval", help="output folder")
+p.add_argument("--out", default=os.path.join(os.environ.get("RESULTS_DIR", "results"), "eval"),
+               help="output folder")
 p.add_argument("--no-thinking", action="store_true",
                help="send enable_thinking=false (Qwen3, Gemma 4 chat templates); results saved as <model>-nothink")
 p.add_argument("--reasoning-effort", choices=("low", "medium", "xhigh"),
@@ -57,7 +58,7 @@ if args.no_thinking and args.reasoning_effort:
 
 URL = os.environ.get("VLLM_URL", "http://127.0.0.1:8000/v1")
 HEADERS = {"Content-Type": "application/json", "Authorization": "Bearer " + os.environ.get("VLLM_API_KEY", "")}
-MODEL = json.load(urllib.request.urlopen(urllib.request.Request(URL + "/models", headers=HEADERS), timeout=10))["data"][0]["id"]
+MODEL = os.environ.get("VLLM_MODEL") or json.load(urllib.request.urlopen(urllib.request.Request(URL + "/models", headers=HEADERS), timeout=10))["data"][0]["id"]
 LABEL = (MODEL + ("-nothink" if args.no_thinking else "")
          + ("-effort-" + args.reasoning_effort if args.reasoning_effort else "")
          + ("-keep" if args.keep_thinking else ""))
@@ -93,7 +94,8 @@ def run_tests(task_dir, work, pattern=ALL_TESTS):
         shutil.copy(f, work)  # overwrite with the originals every time
     try:
         r = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s", ".", "-p", pattern],
-                           cwd=work, capture_output=True, text=True, timeout=60)
+                           cwd=work, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=60,
+                           env=dict(os.environ, PYTHONIOENCODING="utf-8"))
         return r.returncode == 0, r.stdout + r.stderr
     except subprocess.TimeoutExpired:
         return False, "tests timed out (60s)"
@@ -122,11 +124,11 @@ def call_tool(name, raw_args, task_dir, work, test_pattern):
         if name == "read_file":
             if not os.path.isfile(path):
                 return "error: file not found", False
-            return open(path).read(), False
+            return open(path, encoding="utf-8", errors="replace").read(), False
         if "content" not in a:
             return "error: missing content", True
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        open(path, "w").write(a["content"])
+        open(path, "w", encoding="utf-8").write(a["content"])
         return "ok", False
     return "error: unknown tool " + name, True
 
@@ -147,7 +149,7 @@ def cwe_ids(value):
 def reported(work):
     """(findings that name a CWE, set of CWE ids) from FINDINGS.json, or None if missing or unreadable."""
     try:
-        data = json.load(open(os.path.join(work, "FINDINGS.json")))
+        data = json.load(open(os.path.join(work, "FINDINGS.json"), encoding="utf-8"))
     except (OSError, ValueError):
         return None
     items = data.get("findings") if isinstance(data, dict) else data
@@ -169,7 +171,7 @@ def tests_passed(task_dir, work):
 
 def defined_tests(task_dir):
     # from the source, not from "Ran N": a module that fails to import shows up as one test
-    return sum(len(re.findall(r"^\s+def test_", open(f).read(), re.M))
+    return sum(len(re.findall(r"^\s+def test_", open(f, encoding="utf-8").read(), re.M))
                for f in glob.glob(os.path.join(task_dir, "tests", ALL_TESTS)))
 
 
@@ -187,7 +189,7 @@ def grade(task_dir, work, stat):
         stat["passed"] = ok
         stat["score"] = 100.0 if ok else round(100.0 * max(0, passing - base) / max(1, total - base), 1)
         return
-    expected = {c.upper() for c in json.load(open(expected_path))["cwe"]}
+    expected = {c.upper() for c in json.load(open(expected_path, encoding="utf-8"))["cwe"]}
     found = reported(work)
     stat["report"] = found is not None
     n_found, cwes = found or (0, set())
@@ -206,7 +208,7 @@ def solve(task_dir):
     shutil.copytree(os.path.join(task_dir, "files"), work, dirs_exist_ok=True)
     visible = FUNC_TESTS if glob.glob(os.path.join(task_dir, "tests", FUNC_TESTS)) else ALL_TESTS
     messages = [{"role": "system", "content": SYSTEM},
-                {"role": "user", "content": open(os.path.join(task_dir, "task.md")).read()}]
+                {"role": "user", "content": open(os.path.join(task_dir, "task.md"), encoding="utf-8").read()}]
     stat = {"turns": 0, "tool_calls": 0, "tool_errors": 0, "tokens": 0, "out_tokens": 0, "error": "",
             "func": None, "found": None, "fixed": None, "false_alarm": None, "report": None, "score": None}
     t0 = time.time()
@@ -317,23 +319,23 @@ if security:
 task_set = os.path.basename(os.path.normpath(args.tasks))
 suffix = "" if task_set == "tasks" else "-" + task_set
 os.makedirs(args.out, exist_ok=True)
-with open(os.path.join(args.out, LABEL + suffix + ".json"), "w") as f:
+with open(os.path.join(args.out, LABEL + suffix + ".json"), "w", encoding="utf-8") as f:
     json.dump({"summary": summary, "tasks": rows}, f, ensure_ascii=False, indent=1)
 summary["task_ids"] = ",".join(sorted(r["task"] for r in rows))
 path = os.path.join(args.out, "summary" + suffix + ".csv")
 if os.path.exists(path):
-    with open(path, newline="") as f:
+    with open(path, newline="", encoding="utf-8") as f:
         if next(csv.reader(f), []) != list(summary):
             os.replace(path, path + ".old")  # written by an older eval.py with other columns
 new = not os.path.exists(path)
-with open(path, "a", newline="") as f:
+with open(path, "a", newline="", encoding="utf-8") as f:
     w = csv.DictWriter(f, fieldnames=list(summary))
     if new:
         w.writeheader()
     w.writerow(summary)
 
 latest = {}
-for r in csv.DictReader(open(path)):
+for r in csv.DictReader(open(path, encoding="utf-8")):
     if r["task_ids"] == summary["task_ids"]:
         latest[r["model"]] = r
 print("\nmodel comparison, runs on the same {} tasks ({})".format(n, path))

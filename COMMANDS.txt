@@ -89,19 +89,18 @@ curl http://<server>:8000/v1/chat/completions -H "Content-Type: application/json
 [12] Pull the image again (when check reports transformers out of range)
 docker pull vllm/vllm-openai:v0.33.0
 
-[13] H200 server (configs/h200: qwen3.8-27b-fp8 = 1, gemma-4-31b-it-fp8 = 7)
-cp .env.example .env                     # first time only
-vi .env                  # CONFIG_DIR=configs/h200, GPU_ID, MODELS_DIR
-./serve.sh check
-./serve.sh test-all 1 7                  # test + quality, other models skipped
-./serve.sh up 1
-./serve.sh loadtest --users 1,4,8,12,16,24,32
-./serve.sh up 7
-./serve.sh loadtest --users 1,4,8,12,16,24,32
-./serve.sh down
-./serve.sh report
-#   H200 configs differ from configs/ only in max-num-seqs 32 and, for
-#   qwen3.8, no attention-backend line. The loadtest report names the GPU.
-#   Optional: VLLM_USE_DEEP_GEMM=1 in .env (Hopper FP8 kernels), then up.
+[13] Remote server, run from a PC (PowerShell), e.g. company H200
+cd jubilant-potato
+$env:VLLM_URL = "http://<server>:<port>/v1"
+$env:VLLM_API_KEY = "<key>"
+$env:VLLM_MODEL = "<model id from /v1/models>"
+$env:GPU_LABEL = "H200 MIG <profile>"
+$env:RESULTS_DIR = "results_h200"
+python scripts	est.py
+python scripts\eval.py --tasks evals\long --max-turns 60 --time-limit 900
+python scripts\loadtest.py --users 1,2,4,8,12,16
+python scriptseport.py
+#   Needs Python 3.9+ (full installer: loadtest reads its Lib/*.py).
+#   No GPU table remotely. Busy shared server: run at a quiet time.
 
 Details: docs/guide.html

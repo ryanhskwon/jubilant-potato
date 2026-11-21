@@ -23,7 +23,7 @@ IMAGE=${VLLM_IMAGE:-vllm/vllm-openai:v0.33.0}
 MODELS_DIR=${MODELS_DIR:-/data/models}
 export VLLM_URL=http://127.0.0.1:${HOST_PORT:-8000}/v1
 PY=$(command -v python3 || echo /usr/libexec/platform-python)
-export CONFIG_DIR=${CONFIG_DIR:-configs}   # configs/h200 on the H200 server (set in .env)
+export CONFIG_DIR=${CONFIG_DIR:-configs}   # config folder per hardware (set in .env)
 VULN_TASKS=${VULN_TASKS-sql-injection,command-injection,path-traversal,xss,hardcoded-secret,clean-user-lookup}
 LONG=${LONG-1}            # LONG=0 ./serve.sh test-all ... skips the long coding task
 

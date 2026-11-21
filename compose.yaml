@@ -9,7 +9,7 @@ x-vllm: &vllm
   ports: ["${HOST_BIND:-0.0.0.0}:${HOST_PORT:-8000}:8000"]
   volumes:
     - ${MODELS_DIR:-/data/models}:/models:ro
-    - ./${CONFIG_DIR:-configs}:/configs:ro    # CONFIG_DIR=configs/h200 on the H200 server
+    - ./${CONFIG_DIR:-configs}:/configs:ro    # CONFIG_DIR in .env: config folder per hardware
     - ./cache:/root/.cache                 # compile cache -> faster from the second startup
   environment:
     VLLM_API_KEY: ${VLLM_API_KEY:-}

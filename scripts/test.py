@@ -72,12 +72,13 @@ def speed():
     return n > 0, "first token {:.2f}s, {:.1f} tok/s".format(first - t0, n / max(time.time() - first, 1e-6))
 
 
-MODEL = json.load(urllib.request.urlopen(urllib.request.Request(URL + "/models", headers=HEADERS), timeout=10))["data"][0]["id"]
+MODEL = os.environ.get("VLLM_MODEL") or json.load(urllib.request.urlopen(urllib.request.Request(URL + "/models", headers=HEADERS), timeout=10))["data"][0]["id"]
 print("model:", MODEL)
 CHECKS = [("text", text), ("tool", tool), ("image", image), ("speed", speed)]
 results = [check(n, f) for n, f in CHECKS]
 print("passed {}/{}".format(sum(results), len(results)))
-os.makedirs("results/test", exist_ok=True)
-with open(os.path.join("results", "test", MODEL + ".json"), "w") as f:
+OUT = os.path.join(os.environ.get("RESULTS_DIR", "results"), "test")
+os.makedirs(OUT, exist_ok=True)
+with open(os.path.join(OUT, MODEL + ".json"), "w", encoding="utf-8") as f:
     json.dump({"model": MODEL, "date": time.strftime("%Y-%m-%d %H:%M"),
                "checks": {n: r for (n, _), r in zip(CHECKS, results)}}, f, indent=1)

@@ -23,6 +23,7 @@ import random
 import subprocess
 import threading
 import time
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
@@ -42,7 +43,8 @@ p.add_argument("--ttft", type=float, default=5.0, help="target: TTFT p95 (second
 p.add_argument("--tps", type=float, default=20.0, help="target: 95%% of calls at least this many output tok/s")
 p.add_argument("--batch-sessions", type=int, default=0, help="sessions reserved for daytime batch jobs")
 p.add_argument("--csv", default="", help="CSV path (default: next to the .txt report)")
-p.add_argument("--out", default="results/loadtest", help="report folder")
+p.add_argument("--out", default=os.path.join(os.environ.get("RESULTS_DIR", "results"), "loadtest"),
+               help="report folder")
 args = p.parse_args()
 if args.no_thinking and args.reasoning_effort:
     p.error("--no-thinking and --reasoning-effort exclude each other")
@@ -50,7 +52,7 @@ if args.no_thinking and args.reasoning_effort:
 URL = os.environ.get("VLLM_URL", "http://127.0.0.1:8000/v1")
 BASE = URL[:-3] if URL.endswith("/v1") else URL
 HEADERS = {"Content-Type": "application/json", "Authorization": "Bearer " + os.environ.get("VLLM_API_KEY", "")}
-MODEL = json.load(urllib.request.urlopen(urllib.request.Request(URL + "/models", headers=HEADERS), timeout=10))["data"][0]["id"]
+MODEL = os.environ.get("VLLM_MODEL") or json.load(urllib.request.urlopen(urllib.request.Request(URL + "/models", headers=HEADERS), timeout=10))["data"][0]["id"]
 FIRST_TOKEN_KEYS = ("content", "reasoning_content", "reasoning")
 SYSTEM = ("You are a security engineer agent. Find vulnerabilities in the user's code, name each with its CWE, "
           "and write patches that fix them without changing behavior. Ask for more files with tools when needed.")
@@ -170,6 +172,8 @@ GAUGES = ("vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_perc", "vllm:num_req
 
 GPU_FIELDS = ("util", "power", "temp", "clock", "mem")
 GPU_ID = os.environ.get("GPU_ID", "0")  # the GPU compose gives the model (.env)
+# nvidia-smi here sees this machine's GPU, which serves the model only when the server is local
+LOCAL = urllib.parse.urlparse(URL).hostname in ("127.0.0.1", "localhost", "::1")
 
 
 def gpu_name():
@@ -181,7 +185,9 @@ def gpu_name():
 
 
 def gpu_now():
-    """(util %, power W, temp C, SM clock MHz, memory used MiB) of the first GPU, or None."""
+    """(util %, power W, temp C, SM clock MHz, memory used MiB) of GPU_ID, or None."""
+    if not LOCAL:
+        return None
     try:
         line = subprocess.run(
             ["nvidia-smi", "-i", GPU_ID, "--query-gpu=utilization.gpu,power.draw,temperature.gpu,clocks.sm,memory.used",
@@ -284,7 +290,7 @@ def step(users):
 def config_max_num_seqs():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     for path in glob.glob(os.path.join(root, os.environ.get("CONFIG_DIR", "configs"), "*.yaml")):
-        lines = [l.split("#")[0].strip() for l in open(path)]
+        lines = [l.split("#")[0].strip() for l in open(path, encoding="utf-8")]
         if "served-model-name: " + MODEL in lines:
             for l in lines:
                 if l.startswith("max-num-seqs:"):
@@ -296,7 +302,7 @@ os.makedirs(args.out, exist_ok=True)
 stamp = time.strftime("%Y%m%d-%H%M")
 report_path = os.path.join(args.out, "{}-{}.txt".format(MODEL, stamp))
 csv_path = args.csv or os.path.join(args.out, "{}-{}.csv".format(MODEL, stamp))
-report = open(report_path, "w")
+report = open(report_path, "w", encoding="utf-8")
 
 
 def out(line=""):
@@ -306,9 +312,11 @@ def out(line=""):
 
 
 max_seqs = config_max_num_seqs()
-GPU_NAME = gpu_name()
-out("model {} | max-num-seqs {} | GPU {} ({})".format(MODEL, max_seqs if max_seqs is not None else "?", GPU_ID,
-                                                      GPU_NAME))
+GPU_NAME = os.environ.get("GPU_LABEL") or (gpu_name() if LOCAL else "remote")
+out("model {} | max-num-seqs {} | GPU {}".format(MODEL, max_seqs if max_seqs is not None else "?",
+                                                "{} ({})".format(GPU_ID, GPU_NAME) if LOCAL else GPU_NAME))
+if not LOCAL:
+    out("remote server: no GPU table here; SERVER BREAKDOWN needs its /metrics to be reachable")
 out("session: {} tok code, {} calls x ({} + {} tool tok), {}s/step".format(
     args.context, args.turns, "out<={}".format(NATURAL_CAP) if args.natural else "{} out".format(args.output),
     args.tool_output, args.duration))
@@ -341,7 +349,7 @@ except KeyboardInterrupt:
     STOP.set()
     out("stopped by Ctrl+C, summary of finished steps:")
 
-with open(csv_path, "w", newline="") as f:
+with open(csv_path, "w", newline="", encoding="utf-8") as f:
     w = csv.DictWriter(f, fieldnames=list(rows[0]) if rows else ["users"])
     w.writeheader()
     w.writerows(rows)

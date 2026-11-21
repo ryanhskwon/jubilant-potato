@@ -149,24 +149,31 @@ python3 scripts/check_tasks.py evals/long
 - **점수(0~100):** 시작 코드에서 실패하던 테스트 가운데 모델 작업 뒤 통과한 비율입니다. 원래 통과하던 테스트를 망가뜨리면 점수가 깎입니다. 모든 테스트를 통과하면 100이고, 아무것도 안 하면 0입니다. 요청 하나를 빠뜨린 구현(`alternatives/bad-*`)은 94점입니다.
 - **결과:** `results/eval/summary-long.csv`. `report` 표의 `long` 칸에 나옵니다. 실패한 테스트 이름은 결과 줄 아래 `failed:`로 나오고, 모델이 고친 코드는 `results/eval/work/<모델>-ticket-tracker/`에 남습니다.
 
-### H200에서 측정 (`configs/h200/`)
+### 원격 서버 측정 (내 PC에서 API로, 예: 회사 H200)
 
-같은 저장소를 H200 서버에 받고 `.env`만 바꿉니다. H200 설정이 있는 모델은 `qwen3.8-27b-fp8`(1번)과 `gemma-4-31b-it-fp8`(7번) 두 개이고, 나머지 모델은 `test-all`에서 건너뜁니다.
+서버를 직접 띄울 수 없고 API만 쓸 수 있을 때는 PC에서 스크립트를 바로 실행합니다. `serve.sh`는 쓰지 않습니다. PC에는 Python 3.9 이상(python.org 설치본)이 필요합니다. 부하 시험은 PC에 설치된 Python의 표준 라이브러리 코드를 입력으로 쓰므로, 압축판(embeddable)이 아닌 일반 설치본이어야 합니다.
 
-```bash
-cp .env.example .env            # 처음이면
-# .env: CONFIG_DIR=configs/h200, GPU_ID=<쓸 H200 번호>, MODELS_DIR=<모델 폴더>
-./serve.sh check
-./serve.sh test-all 1 7         # 기능 점검 + 품질 (취약점 6개 + 긴 과제)
-./serve.sh up 1 && ./serve.sh loadtest --users 1,4,8,12,16,24,32
-./serve.sh up 7 && ./serve.sh loadtest --users 1,4,8,12,16,24,32
-./serve.sh down && ./serve.sh report
+```powershell
+cd jubilant-potato
+$env:VLLM_URL = "http://<서버 주소>:<포트>/v1"
+$env:VLLM_API_KEY = "<키>"
+(Invoke-RestMethod "$env:VLLM_URL/models" -Headers @{Authorization="Bearer $env:VLLM_API_KEY"}).data.id   # 모델 이름 확인
+$env:VLLM_MODEL = "<위에서 나온 모델 이름>"
+$env:GPU_LABEL = "H200 MIG <프로파일>"     # 결과에 남길 장비 이름
+$env:RESULTS_DIR = "results_h200"
+python scripts\check_tasks.py evals\long
+python scripts	est.py
+python scripts\eval.py --tasks evalsuln --only sql-injection,command-injection,path-traversal,xss,hardcoded-secret,clean-user-lookup
+python scripts\eval.py --tasks evals\long --max-turns 60 --time-limit 900
+python scripts\loadtest.py --users 1,2,4,8,12,16
+python scriptseport.py
 ```
 
-- **RTX PRO 6000 설정과 다른 점:** `max-num-seqs` 32 (메모리가 커서 32세션까지 측정), qwen3.8의 `attention-backend: FLASHINFER` 줄 없음 (SM120용으로 넣은 값이라 Hopper에서는 vLLM이 고르게 둠). 나머지(문맥 창, 입력 조각, MTP 2, KV fp8, 생각 파서)는 같아서 장비 차이만 비교됩니다.
-- **결과 구분:** 부하 시험 결과 첫 줄과 CSV `gpu` 열에 GPU 이름(`nvidia-smi`)이 남습니다. 결과 폴더는 서버마다 따로 쌓입니다.
-- **선택 실험:** `.env`에 `VLLM_USE_DEEP_GEMM=1`을 주면 Hopper용 FP8 행렬 곱 커널(DeepGEMM)을 시험합니다. 기본은 RTX와 같은 0입니다. 바꾼 뒤에는 `up`으로 다시 띄웁니다.
-- **GPU가 여러 장이면:** `GPU_ID`로 한 장을 고릅니다. 다른 작업이 쓰고 있는 GPU는 피하세요. 부하 시험의 GPU 표도 이 번호의 GPU를 읽습니다.
+- **모델 고르기:** 한 주소에 모델이 여러 개면 `VLLM_MODEL`로 지정합니다. 비우면 목록의 첫 모델을 씁니다. 모델마다 위 명령을 반복합니다.
+- **결과:** `RESULTS_DIR` 폴더에 따로 쌓여 RTX 결과와 섞이지 않습니다. 부하 시험 결과의 `gpu` 열에는 `GPU_LABEL` 값이 남습니다.
+- **원격이라 빠지는 것:** GPU 표(`nvidia-smi`는 서버에서만 보임)는 `-`로 나옵니다. 서버 분석 표는 서버의 `/metrics`에 접근할 수 있을 때만 나옵니다.
+- **Windows 주의:** 취약점 과제 중 redos와 temp-file은 Windows에서 채점이 맞지 않습니다(`check_tasks.py`로 확인). 빠른 세트 6개와 긴 과제는 문제없습니다.
+- **해석 주의:** 결과는 그 서버의 vLLM 설정과 GPU 조건(MIG 분할 등)에서의 값입니다. 서버 설정을 함께 기록하세요. 운영 중인 서버라면 다른 사용자의 요청이 섞이고, 부하 시험이 그 사용자들을 느리게 할 수 있으니 한가한 시간에 작은 단계부터 돌립니다.
 
 ## 문제 해결
 
