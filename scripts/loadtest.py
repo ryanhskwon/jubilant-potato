@@ -256,6 +256,7 @@ def step(users):
     preempt = delta(srv, "vllm:num_preemptions_total")
     row = {
         "users": users, "requests": len(done), "errors": len(results) - len(done),
+        "error_first": next((r["err"] for r in results if r["err"]), ""),
         "ttft_p50": pct([r["ttft"] for r in done], 50), "ttft_p95": pct([r["ttft"] for r in done], 95),
         "ttft_p99": pct([r["ttft"] for r in done], 99),
         "tps_p50": pct([r["tps"] for r in done], 50), "tps_p5": pct([r["tps"] for r in done], 5),
@@ -344,7 +345,7 @@ try:
         out("{users:>5} {ttft_p50:>7.2f}s {ttft_p95:>7.2f}s {tps_p50:>8.1f} {tps_p5:>8.1f} {lat_p95:>7.1f}s "
             "{out_tps:>9.0f} {kv:>5} {limit:>5} {ok:>4}{err}".format(
                 kv="-" if r["kv_max"] is None else "{:.0f}".format(r["kv_max"]), ok="OK" if r["ok"] else "X",
-                err="  errors {}".format(r["errors"]) if r["errors"] else "", **{k: v for k, v in r.items() if k != "ok"}))
+                err="  errors {} ({})".format(r["errors"], r["error_first"][:60]) if r["errors"] else "", **{k: v for k, v in r.items() if k != "ok"}))
         if not r["ok"] and len(rows) > 1 and not rows[-2]["ok"]:
             break  # two failing steps in a row: past the limit
 except KeyboardInterrupt:
