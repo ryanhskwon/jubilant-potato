@@ -23,6 +23,7 @@ IMAGE=${VLLM_IMAGE:-vllm/vllm-openai:v0.33.0}
 MODELS_DIR=${MODELS_DIR:-/data/models}
 export VLLM_URL=http://127.0.0.1:${HOST_PORT:-8000}/v1
 PY=$(command -v python3 || echo /usr/libexec/platform-python)
+export CONFIG_DIR=${CONFIG_DIR:-configs}   # configs/h200 on the H200 server (set in .env)
 VULN_TASKS=${VULN_TASKS-sql-injection,command-injection,path-traversal,xss,hardcoded-secret,clean-user-lookup}
 LONG=${LONG-1}            # LONG=0 ./serve.sh test-all ... skips the long coding task
 
@@ -47,8 +48,8 @@ fresh() {
   local m started
   m=$(running); [[ -n $m ]] || return 0
   started=$(docker inspect -f '{{.State.StartedAt}}' "$(dc ps -q "$m")" 2>/dev/null) || return 0
-  if (( $(stat -c %Y "configs/$m.yaml") > $(date -d "$started" +%s) )); then
-    echo "configs/$m.yaml changed after $m started, so the change is not in effect."
+  if (( $(stat -c %Y "$CONFIG_DIR/$m.yaml") > $(date -d "$started" +%s) )); then
+    echo "$CONFIG_DIR/$m.yaml changed after $m started, so the change is not in effect."
     echo "Run ./serve.sh up $m first."
     exit 1
   fi
@@ -102,6 +103,7 @@ up)
   m=$(name_of "${2:?give a model name or number (./serve.sh list)}")
   d=$(dir_of "$m"); [[ -n $d ]] || { echo "unknown model: $2 (./serve.sh list)"; exit 1; }
   [[ -d $MODELS_DIR/$d ]] || { echo "model folder not found: $MODELS_DIR/$d"; exit 1; }
+  [[ -f $CONFIG_DIR/$m.yaml ]] || { echo "no $CONFIG_DIR/$m.yaml (CONFIG_DIR in .env)"; exit 1; }
   dc rm -sf >/dev/null 2>&1 || true
   docker compose --profile "$m" up -d "$m"
   echo -n "waiting for startup (first run can take 10+ minutes) "
@@ -141,6 +143,7 @@ test-all)
   out=results/$(date +%Y%m%d-%H%M); mkdir -p "$out"
   for m in $sel; do
     [[ -d $MODELS_DIR/$(dir_of "$m") ]] || { echo "== $m: no model folder, skipped"; continue; }
+    [[ -f $CONFIG_DIR/$m.yaml ]] || { echo "== $m: no $CONFIG_DIR/$m.yaml, skipped"; continue; }
     echo "== $m"
     if ./serve.sh up "$m"; then
       { ./serve.sh test; "$PY" scripts/eval.py --tasks evals/vuln "${only[@]}"

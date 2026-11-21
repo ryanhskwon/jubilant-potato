@@ -169,13 +169,22 @@ GAUGES = ("vllm:kv_cache_usage_perc", "vllm:gpu_cache_usage_perc", "vllm:num_req
 
 
 GPU_FIELDS = ("util", "power", "temp", "clock", "mem")
+GPU_ID = os.environ.get("GPU_ID", "0")  # the GPU compose gives the model (.env)
+
+
+def gpu_name():
+    try:
+        return subprocess.run(["nvidia-smi", "-i", GPU_ID, "--query-gpu=name", "--format=csv,noheader"],
+                              capture_output=True, text=True, timeout=10).stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
 
 
 def gpu_now():
     """(util %, power W, temp C, SM clock MHz, memory used MiB) of the first GPU, or None."""
     try:
         line = subprocess.run(
-            ["nvidia-smi", "--query-gpu=utilization.gpu,power.draw,temperature.gpu,clocks.sm,memory.used",
+            ["nvidia-smi", "-i", GPU_ID, "--query-gpu=utilization.gpu,power.draw,temperature.gpu,clocks.sm,memory.used",
              "--format=csv,noheader,nounits"], capture_output=True, text=True, timeout=10).stdout.splitlines()[0]
         return tuple(float(v) for v in line.split(","))
     except (OSError, IndexError, ValueError, subprocess.SubprocessError):
@@ -260,7 +269,7 @@ def step(users):
     }
     row.update(gpu_stats(srv.get("gpu")))
     row.update(context=args.context, turns=args.turns, output="natural" if args.natural else args.output,
-               thinking="off" if args.no_thinking else (args.reasoning_effort or "default"))
+               thinking="off" if args.no_thinking else (args.reasoning_effort or "default"), gpu=GPU_NAME)
     row["session_s"] = row["lat_mean"] * args.turns
     row["ok"] = bool(done) and not row["errors"] and row["ttft_p95"] <= args.ttft and row["tps_p5"] >= args.tps
     if (kv is not None and kv >= 90) or (preempt or 0) > 0:
@@ -273,7 +282,8 @@ def step(users):
 
 
 def config_max_num_seqs():
-    for path in glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "configs", "*.yaml")):
+    root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    for path in glob.glob(os.path.join(root, os.environ.get("CONFIG_DIR", "configs"), "*.yaml")):
         lines = [l.split("#")[0].strip() for l in open(path)]
         if "served-model-name: " + MODEL in lines:
             for l in lines:
@@ -296,7 +306,9 @@ def out(line=""):
 
 
 max_seqs = config_max_num_seqs()
-out("model {} | max-num-seqs {}".format(MODEL, max_seqs if max_seqs is not None else "?"))
+GPU_NAME = gpu_name()
+out("model {} | max-num-seqs {} | GPU {} ({})".format(MODEL, max_seqs if max_seqs is not None else "?", GPU_ID,
+                                                      GPU_NAME))
 out("session: {} tok code, {} calls x ({} + {} tool tok), {}s/step".format(
     args.context, args.turns, "out<={}".format(NATURAL_CAP) if args.natural else "{} out".format(args.output),
     args.tool_output, args.duration))

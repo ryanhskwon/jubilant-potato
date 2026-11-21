@@ -9,12 +9,12 @@ x-vllm: &vllm
   ports: ["${HOST_BIND:-0.0.0.0}:${HOST_PORT:-8000}:8000"]
   volumes:
     - ${MODELS_DIR:-/data/models}:/models:ro
-    - ./configs:/configs:ro
+    - ./${CONFIG_DIR:-configs}:/configs:ro    # CONFIG_DIR=configs/h200 on the H200 server
     - ./cache:/root/.cache                 # compile cache -> faster from the second startup
   environment:
     VLLM_API_KEY: ${VLLM_API_KEY:-}
     HF_HUB_OFFLINE: "1"
-    VLLM_USE_DEEP_GEMM: "0"                # not supported on SM120 (RTX PRO 6000)
+    VLLM_USE_DEEP_GEMM: ${VLLM_USE_DEEP_GEMM:-0}   # 0: not supported on SM120 (RTX PRO 6000); Hopper may use 1
     VLLM_NO_USAGE_STATS: "1"
   deploy:
     resources:

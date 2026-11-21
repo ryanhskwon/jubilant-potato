@@ -149,6 +149,25 @@ python3 scripts/check_tasks.py evals/long
 - **점수(0~100):** 시작 코드에서 실패하던 테스트 가운데 모델 작업 뒤 통과한 비율입니다. 원래 통과하던 테스트를 망가뜨리면 점수가 깎입니다. 모든 테스트를 통과하면 100이고, 아무것도 안 하면 0입니다. 요청 하나를 빠뜨린 구현(`alternatives/bad-*`)은 94점입니다.
 - **결과:** `results/eval/summary-long.csv`. `report` 표의 `long` 칸에 나옵니다. 실패한 테스트 이름은 결과 줄 아래 `failed:`로 나오고, 모델이 고친 코드는 `results/eval/work/<모델>-ticket-tracker/`에 남습니다.
 
+### H200에서 측정 (`configs/h200/`)
+
+같은 저장소를 H200 서버에 받고 `.env`만 바꿉니다. H200 설정이 있는 모델은 `qwen3.8-27b-fp8`(1번)과 `gemma-4-31b-it-fp8`(7번) 두 개이고, 나머지 모델은 `test-all`에서 건너뜁니다.
+
+```bash
+cp .env.example .env            # 처음이면
+# .env: CONFIG_DIR=configs/h200, GPU_ID=<쓸 H200 번호>, MODELS_DIR=<모델 폴더>
+./serve.sh check
+./serve.sh test-all 1 7         # 기능 점검 + 품질 (취약점 6개 + 긴 과제)
+./serve.sh up 1 && ./serve.sh loadtest --users 1,4,8,12,16,24,32
+./serve.sh up 7 && ./serve.sh loadtest --users 1,4,8,12,16,24,32
+./serve.sh down && ./serve.sh report
+```
+
+- **RTX PRO 6000 설정과 다른 점:** `max-num-seqs` 32 (메모리가 커서 32세션까지 측정), qwen3.8의 `attention-backend: FLASHINFER` 줄 없음 (SM120용으로 넣은 값이라 Hopper에서는 vLLM이 고르게 둠). 나머지(문맥 창, 입력 조각, MTP 2, KV fp8, 생각 파서)는 같아서 장비 차이만 비교됩니다.
+- **결과 구분:** 부하 시험 결과 첫 줄과 CSV `gpu` 열에 GPU 이름(`nvidia-smi`)이 남습니다. 결과 폴더는 서버마다 따로 쌓입니다.
+- **선택 실험:** `.env`에 `VLLM_USE_DEEP_GEMM=1`을 주면 Hopper용 FP8 행렬 곱 커널(DeepGEMM)을 시험합니다. 기본은 RTX와 같은 0입니다. 바꾼 뒤에는 `up`으로 다시 띄웁니다.
+- **GPU가 여러 장이면:** `GPU_ID`로 한 장을 고릅니다. 다른 작업이 쓰고 있는 GPU는 피하세요. 부하 시험의 GPU 표도 이 번호의 GPU를 읽습니다.
+
 ## 문제 해결
 
 OOM 단계별 대처와 증상별 조치는 [docs/guide.html](docs/guide.html#troubleshooting)의 트러블슈팅에 정리했습니다. 자주 쓰는 것:

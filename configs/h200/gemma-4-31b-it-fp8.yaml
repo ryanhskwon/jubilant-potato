@@ -1,0 +1,15 @@
+# H200 (Hopper, 141GB): same settings as configs/gemma-4-31b-it-fp8.yaml except the lines marked H200
+# If tool calls come back as plain text, delete the reasoning-parser line (vllm#39468)
+served-model-name: gemma-4-31b-it-fp8
+max-model-len: 131072
+kv-cache-dtype: fp8             # same as the other models; delete this line if startup fails
+gpu-memory-utilization: 0.92
+max-num-seqs: 32                # H200: more memory, so measure up to 32 sessions
+max-num-batched-tokens: 8192
+enable-prefix-caching: true
+async-scheduling: true
+reasoning-parser: gemma4
+enable-auto-tool-choice: true
+tool-call-parser: gemma4
+chat-template: /vllm-workspace/examples/tool_chat_template_gemma4.jinja
+limit-mm-per-prompt: '{"image": 4, "audio": 0}'

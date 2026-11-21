@@ -1,0 +1,15 @@
+# H200 (Hopper, 141GB): same settings as configs/qwen3.8-27b-fp8.yaml except the lines marked H200
+# H200: no attention-backend line, so vLLM picks the backend for Hopper (FlashInfer was set for SM120)
+served-model-name: qwen3.8-27b-fp8
+max-model-len: 262144
+kv-cache-dtype: fp8
+gpu-memory-utilization: 0.92
+max-num-seqs: 32                # H200: more memory, so measure up to 32 sessions
+max-num-batched-tokens: 16384   # 8192 -> 16384 raised loadtest capacity from 6 to 8 sessions (2026-11-09)
+enable-prefix-caching: true
+async-scheduling: true
+reasoning-parser: qwen3
+enable-auto-tool-choice: true
+tool-call-parser: qwen3_coder
+limit-mm-per-prompt: '{"image": 4, "video": 0}'
+speculative-config: '{"method": "mtp", "num_speculative_tokens": 2}'   # 3 -> 2 (2026-11-13): fewer wasted drafts with many users; comment out to turn MTP off

@@ -89,4 +89,19 @@ curl http://<server>:8000/v1/chat/completions -H "Content-Type: application/json
 [12] Pull the image again (when check reports transformers out of range)
 docker pull vllm/vllm-openai:v0.33.0
 
+[13] H200 server (configs/h200: qwen3.8-27b-fp8 = 1, gemma-4-31b-it-fp8 = 7)
+cp .env.example .env                     # first time only
+vi .env                  # CONFIG_DIR=configs/h200, GPU_ID, MODELS_DIR
+./serve.sh check
+./serve.sh test-all 1 7                  # test + quality, other models skipped
+./serve.sh up 1
+./serve.sh loadtest --users 1,4,8,12,16,24,32
+./serve.sh up 7
+./serve.sh loadtest --users 1,4,8,12,16,24,32
+./serve.sh down
+./serve.sh report
+#   H200 configs differ from configs/ only in max-num-seqs 32 and, for
+#   qwen3.8, no attention-backend line. The loadtest report names the GPU.
+#   Optional: VLLM_USE_DEEP_GEMM=1 in .env (Hopper FP8 kernels), then up.
+
 Details: docs/guide.html
