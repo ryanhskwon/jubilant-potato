@@ -42,6 +42,10 @@ p.add_argument("--reasoning-effort", choices=("low", "medium", "xhigh"),
 p.add_argument("--tool-output", type=int, default=1000, help="code tokens added per turn as a tool result")
 p.add_argument("--ttft", type=float, default=5.0, help="target: TTFT p95 (seconds)")
 p.add_argument("--tps", type=float, default=20.0, help="target: 95%% of calls at least this many output tok/s")
+p.add_argument("--judge", choices=("client", "server"), default="client",
+               help="TTFT for the target: what this PC sees (client) or vLLM's own TTFT p95 (server, GPU side)")
+p.add_argument("--gateway", type=float, default=0.0,
+               help="with --judge server: seconds to add for network/gateway (e.g. 3 for the company network)")
 p.add_argument("--batch-sessions", type=int, default=0, help="sessions reserved for daytime batch jobs")
 p.add_argument("--request-timeout", type=int, default=1800,
                help="give up on a call after this many seconds without data (a stuck stream counts as an error)")
@@ -240,7 +244,7 @@ def hist_avg(srv, name):
 
 
 def hist_pct(srv, name, q):
-    """Upper bound of the histogram bucket that holds the q-th percentile during the step."""
+    """q-th percentile during the step, linear inside its histogram bucket (like Prometheus)."""
     prefix = name + "_bucket|"
     buckets = []
     for key in srv.get("end", {}):
@@ -252,9 +256,13 @@ def hist_pct(srv, name, q):
     buckets.sort()
     if not buckets or buckets[-1][1] <= 0:
         return None
+    target, lo, below = buckets[-1][1] * q / 100, 0.0, 0.0
     for le, cum in buckets:
-        if cum >= buckets[-1][1] * q / 100:
-            return le
+        if cum >= target:
+            if le == float("inf"):
+                return lo
+            return lo + (le - lo) * (target - below) / (cum - below) if cum > below else le
+        lo, below = le, cum
     return None
 
 
@@ -307,7 +315,11 @@ def step(users):
                thinking="off" if args.no_thinking else (args.reasoning_effort or "default"), gpu=GPU_NAME,
                max_num_seqs=max_seqs)
     row["session_s"] = row["lat_mean"] * args.turns
-    row["ok"] = bool(done) and not row["errors"] and row["ttft_p95"] <= args.ttft and row["tps_p5"] >= args.tps
+    srv95 = row["server_ttft_p95"]
+    row["ttft_judged"] = row["ttft_p95"] if args.judge == "client" else (
+        None if srv95 is None else srv95 + args.gateway)
+    row["ok"] = (bool(done) and not row["errors"] and row["ttft_judged"] is not None
+                 and row["ttft_judged"] <= args.ttft and row["tps_p5"] >= args.tps)
     if (kv is not None and kv >= 90) or (preempt or 0) > 0:
         row["limit"] = "KV"
     elif (row["waiting_max"] or 0) > 0:
@@ -354,6 +366,8 @@ out("session: {} tok code, {} calls x ({} + {} tool tok), {}s/step".format(
 if args.no_thinking or args.reasoning_effort:
     out("thinking: " + ("off" if args.no_thinking else "reasoning_effort " + args.reasoning_effort))
 out("target: TTFT p95 <= {:g}s and 95% of calls >= {:g} tok/s (tok/s p5)".format(args.ttft, args.tps))
+if args.judge == "server":
+    out("judge: vLLM's own TTFT p95 (/metrics) + {:g}s gateway, not this PC's TTFT".format(args.gateway))
 out("note: no pause between turns (worst case); MTP speedup depends on the code")
 
 sample_text = code(4000, random.Random("warm-up"))
@@ -395,11 +409,12 @@ out("{:>5} {:>8} {:>8} {:>7} {:>8} {:>7} {:>5} {:>8} {:>4} {:>4}".format(
     "users", "srv TTFT", "srv p95", "queue", "prefill", "decode", "hit", "pf tok/s", "run", "wait"))
 for r in rows:
     out("{:>5} {:>8} {:>8} {:>7} {:>8} {:>7} {:>5} {:>8} {:>4} {:>4}".format(
-        r["users"], cell(r["server_ttft_avg"], "{:.2f}s"), cell(r["server_ttft_p95"], "<={:g}s"),
+        r["users"], cell(r["server_ttft_avg"], "{:.2f}s"), cell(r["server_ttft_p95"], "~{:.1f}s"),
         cell(r["queue_avg"], "{:.2f}s"), cell(r["prefill_avg"], "{:.2f}s"), cell(r["decode_avg"], "{:.1f}s"),
         cell(r["prefix_hit"] and r["prefix_hit"] * 100, "{:.0f}%"),
         cell(r["prefill_tps"], "{:.0f}"), cell(r["running_max"], "{:.0f}"), cell(r["waiting_max"], "{:.0f}")))
-out("srv TTFT = first token as vLLM measures it (avg; p95 = histogram bucket bound).")
+out("srv TTFT = first token as vLLM measures it (avg; p95 = estimate inside a")
+out("  histogram bucket, e.g. between 2.5s and 5s).")
 out("  TTFT minus srv TTFT = time outside vLLM (network, gateway, HTTP)")
 out("hit = prefix cache hits; pf tok/s = input tokens computed per second (hits")
 out("  excluded); run / wait = most requests running / waiting at once")
@@ -448,6 +463,9 @@ if best:
         " (every step passed, try larger --users)"))
     out("  at that load            : TTFT p95 {:.1f}s, {:.0f} tok/s per call, latency p95 {:.1f}s".format(
         best["ttft_p95"], best["tps_p50"], best["lat_p95"]))
+    if args.judge == "server":
+        out("  judged on               : vLLM TTFT p95 ~{:.1f}s + {:g}s gateway".format(
+            best["server_ttft_p95"], args.gateway))
     out("  one scan + fix session  : {} calls, about {:.0f}s".format(args.turns, best["lat_mean"] * args.turns))
 else:
     out("CAPACITY: no step met the target (relax --ttft / --tps or lower --context)")
