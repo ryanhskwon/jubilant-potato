@@ -275,7 +275,8 @@ def step(users):
     }
     row.update(gpu_stats(srv.get("gpu")))
     row.update(context=args.context, turns=args.turns, output="natural" if args.natural else args.output,
-               thinking="off" if args.no_thinking else (args.reasoning_effort or "default"), gpu=GPU_NAME)
+               thinking="off" if args.no_thinking else (args.reasoning_effort or "default"), gpu=GPU_NAME,
+               max_num_seqs=max_seqs)
     row["session_s"] = row["lat_mean"] * args.turns
     row["ok"] = bool(done) and not row["errors"] and row["ttft_p95"] <= args.ttft and row["tps_p5"] >= args.tps
     if (kv is not None and kv >= 90) or (preempt or 0) > 0:
@@ -311,7 +312,8 @@ def out(line=""):
     report.flush()
 
 
-max_seqs = config_max_num_seqs()
+max_seqs = (config_max_num_seqs() if LOCAL  # a remote server has its own config; MAX_NUM_SEQS reports it
+            else int(os.environ["MAX_NUM_SEQS"]) if os.environ.get("MAX_NUM_SEQS") else None)
 GPU_NAME = os.environ.get("GPU_LABEL") or (gpu_name() if LOCAL else "remote")
 out("model {} | max-num-seqs {} | GPU {}".format(MODEL, max_seqs if max_seqs is not None else "?",
                                                 "{} ({})".format(GPU_ID, GPU_NAME) if LOCAL else GPU_NAME))

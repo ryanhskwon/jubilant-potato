@@ -159,7 +159,8 @@ $env:VLLM_URL = "http://<서버 주소>:<포트>/v1"
 $env:VLLM_API_KEY = "<키>"
 (Invoke-RestMethod "$env:VLLM_URL/models" -Headers @{Authorization="Bearer $env:VLLM_API_KEY"}).data.id   # 모델 이름 확인
 $env:VLLM_MODEL = "<위에서 나온 모델 이름>"
-$env:GPU_LABEL = "H200 MIG <프로파일>"     # 결과에 남길 장비 이름
+$env:GPU_LABEL = "H200 MIG 7g.141gb, vLLM 0.26.0"   # 결과에 남길 장비 이름
+$env:MAX_NUM_SEQS = "<서버의 max-num-seqs>"          # 원격 서버 설정값 (결과에 기록)
 $env:RESULTS_DIR = "results_h200"
 python scripts\check_tasks.py evals\long
 python scripts	est.py

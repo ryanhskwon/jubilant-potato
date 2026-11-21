@@ -94,7 +94,8 @@ cd jubilant-potato
 $env:VLLM_URL = "http://<server>:<port>/v1"
 $env:VLLM_API_KEY = "<key>"
 $env:VLLM_MODEL = "<model id from /v1/models>"
-$env:GPU_LABEL = "H200 MIG <profile>"
+$env:GPU_LABEL = "H200 MIG 7g.141gb, vLLM 0.26.0"
+$env:MAX_NUM_SEQS = "<server max-num-seqs>"
 $env:RESULTS_DIR = "results_h200"
 python scripts	est.py
 python scripts\eval.py --tasks evals\long --max-turns 60 --time-limit 900
