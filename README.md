@@ -163,11 +163,12 @@ $env:GPU_LABEL = "H200 MIG 7g.141gb, vLLM 0.26.0"   # 결과에 남길 장비 �
 $env:MAX_NUM_SEQS = "<서버의 max-num-seqs>"          # 원격 서버 설정값 (결과에 기록)
 $env:RESULTS_DIR = "results_h200"
 python scripts\check_tasks.py evals\long
-python scripts	est.py
-python scripts\eval.py --tasks evalsuln --only sql-injection,command-injection,path-traversal,xss,hardcoded-secret,clean-user-lookup
+python scripts\test.py
+python scripts\eval.py --tasks evals\vuln --only sql-injection,command-injection,path-traversal,xss,hardcoded-secret,clean-user-lookup
 python scripts\eval.py --tasks evals\long --max-turns 60 --time-limit 900
 python scripts\loadtest.py --users 1,2,4,8,12,16
-python scriptseport.py
+python scripts\loadtest.py --users 1,4,8,12,16,24 --judge server   # GPU 기준 판정 (게이트웨이 시간 제외)
+python scripts\report.py
 ```
 
 - **모델 고르기:** 한 주소에 모델이 여러 개면 `VLLM_MODEL`로 지정합니다. 비우면 목록의 첫 모델을 씁니다. 모델마다 위 명령을 반복합니다.

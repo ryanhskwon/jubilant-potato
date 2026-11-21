@@ -97,10 +97,11 @@ $env:VLLM_MODEL = "<model id from /v1/models>"
 $env:GPU_LABEL = "H200 MIG 7g.141gb, vLLM 0.26.0"
 $env:MAX_NUM_SEQS = "<server max-num-seqs>"
 $env:RESULTS_DIR = "results_h200"
-python scripts	est.py
+python scripts\test.py
 python scripts\eval.py --tasks evals\long --max-turns 60 --time-limit 900
 python scripts\loadtest.py --users 1,2,4,8,12,16
-python scriptseport.py
+python scripts\loadtest.py --users 1,4,8,12,16,24 --judge server   # judge on vLLM TTFT
+python scripts\report.py
 #   Needs Python 3.9+ (full installer: loadtest reads its Lib/*.py).
 #   No GPU table remotely. Busy shared server: run at a quiet time.
 
